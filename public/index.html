@@ -717,7 +717,7 @@ function renderRoom() {
   if (!$("scrRoom").classList.contains("on")) {
     show("scrRoom"); setTab("pick");
     todaysTeams = null;
-    Promise.all([fetchTodaysTeams(draft.sport), fetchRecentStats()]).then(() => renderRoom());
+    fetchTodaysTeams(draft.sport).then(() => renderRoom());
   }
   document.querySelector('[data-tab="chat"]').style.display = draft.local ? "none" : "block";
   const round = roundOf(draft), turnIdx = pickerIndex(draft);
