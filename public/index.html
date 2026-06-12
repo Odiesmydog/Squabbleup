@@ -224,8 +224,6 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
     <h1 class="title">Results</h1>
     <p class="sub">Final standings. ✕ closes a draft into your archive.</p>
     <div id="resultsList"></div>
-    <div class="stepLbl" id="closedLbl" style="display:none">Closed</div>
-    <div id="closedList"></div>
   </section>
 
   <!-- TAB: PROFILE -->
@@ -547,12 +545,9 @@ function renderTabs() {
     : `<div class="emptyBox"><div class="e">🔴</div>Nothing scoring right now.<br />When a draft finishes, it moves here and your players earn points from their real games for 7 days.</div>`;
   // results tab: done unarchived (+ closed list), plus finished locals
   const done = drafts.filter((d) => d.status === "done" && !d.archived);
-  const closed = drafts.filter((d) => d.status === "done" && d.archived);
   const localDone = locals().map((d, i) => ({ d, i })).filter((x) => x.d.picks.length >= x.d.seats.length * x.d.rounds);
   $("resultsList").innerHTML = (done.map((d) => dCardHtml(d, { close: true })).join("") + localDone.map((x) => localCardHtml(x.d, x.i)).join("")) ||
     `<div class="emptyBox"><div class="e">🏆</div>No finished drafts yet.</div>`;
-  $("closedLbl").style.display = closed.length ? "block" : "none";
-  $("closedList").innerHTML = closed.map((d) => dCardHtml(d, { reopen: true })).join("");
 }
 function renderProfileTab() {
   $("profNameBig").textContent = me.name;
