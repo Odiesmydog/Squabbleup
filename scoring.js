@@ -254,6 +254,23 @@ async function draftScoreDetail(pool, state) {
   return out;
 }
 
+// projected scores: per-player average pts over last 30 days (games played only)
+async function projectedScores(pool, players) {
+  if (!players || !players.length) return {};
+  const r = await pool.query(
+    `SELECT player, ROUND(AVG(pts)::numeric, 1) AS proj, COUNT(*) AS games
+     FROM player_scores
+     WHERE player = ANY($1)
+       AND pts > 0
+       AND day >= (CURRENT_DATE - INTERVAL '30 days')
+     GROUP BY player`,
+    [players]
+  );
+  const out = {};
+  for (const row of r.rows) out[row.player] = { proj: parseFloat(row.proj), games: parseInt(row.games) };
+  return out;
+}
+
 // DEMO MODE: seed plausible-but-fake stat days so the full scoring flow is visible
 // before a real slate runs. Lines are tagged (demo) so nobody mistakes them for real.
 async function seedDemo(pool) {
@@ -287,4 +304,4 @@ async function seedDemo(pool) {
   console.log("DEMO stats seeded (today + yesterday). Unset DEMO_STATS for real data only.");
 }
 
-module.exports = { pollAll, draftScores, draftScoreDetail, seedDemo, scoreSummary, todaysTeams, RULES, FAMILY, golfPoints, matchPool, buildPoolIndex, norm };
+module.exports = { pollAll, draftScores, draftScoreDetail, projectedScores, seedDemo, scoreSummary, todaysTeams, RULES, FAMILY, golfPoints, matchPool, buildPoolIndex, norm };

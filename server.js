@@ -309,6 +309,15 @@ app.get("/api/stats/debug", ah(async (req, res) => {
   res.json({ rows: +count, recent, pollTriggered: true });
 }));
 
+// projected scores for all players in a draft
+app.get("/api/draft/:code/projected", ah(async (req, res) => {
+  const r = await pool.query("SELECT state FROM drafts WHERE code=$1", [req.params.code.toUpperCase()]);
+  const st = r.rows[0]?.state;
+  if (!st) return res.status(404).json({ error: "Draft not found" });
+  const players = st.seats.flatMap((s) => s.roster.map((p) => p.n));
+  res.json(await scoring.projectedScores(pool, players));
+}));
+
 // teams playing today for a sport — used to filter draft pool
 app.get("/api/schedule/:sport", ah(async (req, res) => {
   const sport = req.params.sport.toUpperCase();

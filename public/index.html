@@ -798,40 +798,62 @@ for (const [btn, inp] of [["lobbyChatSend", "lobbyChatIn"], ["roomChatSend", "ro
 }
 
 // ================= matchup / scoring =================
-let scoresCache = {}, scoresDetail = {}, scoresT = null;
+let scoresCache = {}, scoresDetail = {}, projCache = {}, scoresT = null;
 async function fetchScores() {
   if (!draft || draft.local) return;
   try {
-    scoresCache = await api(`/api/draft/${draft.code}/scores`);
-    scoresDetail = await api(`/api/draft/${draft.code}/scores/detail`);
-  } catch { scoresCache = {}; scoresDetail = {}; }
+    [scoresCache, scoresDetail, projCache] = await Promise.all([
+      api(`/api/draft/${draft.code}/scores`),
+      api(`/api/draft/${draft.code}/scores/detail`),
+      api(`/api/draft/${draft.code}/projected`),
+    ]);
+  } catch { scoresCache = {}; scoresDetail = {}; projCache = {}; }
 }
 function seatTotals() {
-  return draft.seats.map((s, i) => ({
-    seat: s, i,
-    pts: s.roster.reduce((a, p) => a + (scoresCache[p.n]?.pts || 0), 0),
-  })).sort((a, b) => b.pts - a.pts);
+  return draft.seats.map((s, i) => {
+    const pts = s.roster.reduce((a, p) => a + (scoresCache[p.n]?.pts || 0), 0);
+    const proj = s.roster.reduce((a, p) => a + (projCache[p.n]?.proj || 0), 0);
+    return { seat: s, i, pts, proj };
+  }).sort((a, b) => b.pts - a.pts);
 }
 function renderMatchup(targetId) {
   const rows = seatTotals();
+  const anyScores = rows.some((r) => r.pts > 0);
   $(targetId).innerHTML = rows.map((r, rank) => `
     <div class="muRow ${rank === 0 && r.pts > 0 ? "first" : ""}" data-mu="${r.i}">
       <span class="rank">${rank === 0 && r.pts > 0 ? "👑" : "#" + (rank + 1)}</span>
-      ${avHtml(r.seat)}<span class="who">${esc(r.seat.name)}${r.seat.userId === me.id ? " (you)" : ""}</span>
-      <span class="pts">${r.pts.toFixed(1)}</span>
+      ${avHtml(r.seat)}
+      <span class="who">${esc(r.seat.name)}${r.seat.userId === me.id ? ' <span style="color:var(--green);font-size:11px">YOU</span>' : ""}</span>
+      <span style="text-align:right;line-height:1.2">
+        <span class="pts">${r.pts.toFixed(1)}</span>
+        ${r.proj > 0 ? `<br><span style="font-size:11px;color:var(--dim)">proj ${r.proj.toFixed(1)}</span>` : ""}
+      </span>
+      <span class="chev">▼</span>
     </div>
     <div class="muDetail" id="mu${r.i}">
-      ${r.seat.roster.map((p) => {
+      ${r.seat.roster.length ? r.seat.roster.map((p) => {
         const sc = scoresCache[p.n];
+        const pr = projCache[p.n];
+        const pts = sc?.pts || 0;
         const days = scoresDetail[p.n] || [];
-        const log = days.map((d) => `<div class="muP" style="opacity:.8"><span class="nm2" style="font-weight:600;color:var(--dim)">↳ ${d.day.slice(5)}</span><span class="ln">${esc(d.line)}</span><span class="pp" style="color:var(--dim)">${d.pts.toFixed(1)}</span></div>`).join("");
-        return `<div class="muP"><span class="nm2">${esc(p.n)}</span><span class="ln">${sc ? esc(sc.line) : "no games yet"}</span><span class="pp">${(sc?.pts || 0).toFixed(1)}</span></div>${log}`;
-      }).join("") || '<div class="muP"><span class="ln">No picks yet</span></div>'}
+        const log = days.map((d) => `<div class="muP" style="opacity:.75"><span class="nm2" style="color:var(--dim)">↳ ${d.day.slice(5)}</span><span class="ln">${esc(d.line)}</span><span class="pp" style="color:var(--dim)">${d.pts.toFixed(1)}</span></div>`).join("");
+        const projStr = pr ? `<span style="font-size:11px;color:var(--dim);margin-left:4px">proj ${pr.proj.toFixed(1)}</span>` : "";
+        return `<div class="muP">
+          <span class="nm2">${esc(p.n)}</span>
+          <span class="ptag">${p.sp} ${p.pos}</span>
+          <span class="ln">${sc?.line ? esc(sc.line) : "no stats yet"}</span>
+          <span style="text-align:right"><span class="pp ${pts === 0 ? "zero" : ""}">${pts > 0 ? "+" : ""}${pts.toFixed(1)}</span>${projStr}</span>
+        </div>${log}`;
+      }).join("") : '<div class="muP"><span class="ln" style="color:var(--dim)">No picks yet</span></div>'}
     </div>`).join("") +
-    `<div class="scoreNote">Tap a row to see roster · updates every 5 min${draft.scoring ? ` · scoring ends ${new Date(draft.scoring.end).toLocaleDateString()}` : ""}</div>`;
+    `<div class="scoreNote">Tap a row to expand · proj = 30-day avg · updates every 5 min${draft.scoring ? ` · ends ${new Date(draft.scoring.end).toLocaleDateString()}` : ""}</div>`;
   $(targetId).onclick = (e) => {
-    const i = e.target.closest("[data-mu]")?.getAttribute("data-mu");
-    if (i !== null && i !== undefined) $("mu" + i).classList.toggle("open");
+    const row = e.target.closest("[data-mu]");
+    if (!row) return;
+    const i = row.getAttribute("data-mu");
+    const detail = $("mu" + i);
+    const open = detail.classList.toggle("open");
+    row.classList.toggle("expanded", open);
   };
 }
 
