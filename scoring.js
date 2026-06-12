@@ -29,7 +29,8 @@ const RULES = {
     "batting:H": 3, "batting:R": 2, "batting:RBI": 2, "batting:BB": 2, "batting:HR": 3, "batting:SB": 5,
     "pitching:K": 2, "pitching:ER": -2, "pitching:IP": 2.25,
   },
-  hockey: { "*:G": 8, "*:A": 5, "*:SOG": 1.5, "*:BLK": 1.3, "*:SV": 0.7, "*:GA": -3.5 },
+  // NHL uses BS (blocked shots) label, not BLK
+  hockey: { "*:G": 8, "*:A": 5, "*:SOG": 1.5, "*:BS": 1.3, "*:SV": 0.7, "*:GA": -3.5 },
 };
 const FAMILY = { NFL: "football", CFB: "football", NBA: "basketball", CBB: "basketball", MLB: "baseball", NHL: "hockey" };
 
@@ -73,7 +74,7 @@ function scoreSummary(family, summary) {
   const out = new Map(); // displayName -> { pts, allParts: [] }
   for (const team of summary?.boxscore?.players || []) {
     for (const grp of team.statistics || []) {
-      const gname = String(grp.name || "").toLowerCase();
+      const gname = String(grp.type || grp.name || "").toLowerCase();
       const labels = (grp.labels || []).map((l) => String(l).toUpperCase());
       for (const a of grp.athletes || []) {
         const name = a?.athlete?.displayName;
@@ -81,7 +82,9 @@ function scoreSummary(family, summary) {
         let pts = 0; const allParts = [];
         labels.forEach((lbl, i) => {
           const raw = String(a.stats?.[i] ?? "0");
-          const val = parseFloat(raw.replace(/[^0-9.\-]/g, "")) || 0;
+          let val = parseFloat(raw.replace(/[^0-9.\-]/g, "")) || 0;
+          // ESPN baseball IP uses X.Y where Y = outs (0-2), not decimal fraction
+          if (lbl === "IP" && val > 0) val = Math.floor(val) + ((Math.round(val * 10) % 10) / 3);
           if (!val) return;
           // collect every non-zero stat for display
           allParts.push(`${val} ${lbl.toLowerCase()}`);
