@@ -533,14 +533,14 @@ function renderTabs() {
   const mine = drafts.filter((d) => d.status !== "done" && !d.archived);
   const localList = locals().map((d, i) => ({ d, i })).filter((x) => x.d.picks.length < x.d.seats.length * x.d.rounds);
   $("draftList").innerHTML =
-    (mine.map((d) => dCardHtml(d, d.status === "lobby" ? { leave: true } : {})).join("") + localList.map((x) => localCardHtml(x.d, x.i)).join("")) ||
+    (mine.map((d) => dCardHtml(d, d.status === "lobby" ? { leave: true } : { close: true })).join("") + localList.map((x) => localCardHtml(x.d, x.i)).join("")) ||
     `<div class="emptyBox"><div class="e">🐍</div>Nothing going. Start one from the Lobby tab!</div>`;
   const turnCount = mine.filter((d) => d.status === "active" && d.turn === me.name).length + invites.length;
   $("bdgDrafts").style.display = turnCount ? "block" : "none";
   $("bdgDrafts").textContent = turnCount;
   // live tab: done + inside scoring window
   const live = drafts.filter((d) => d.status === "done" && !d.archived && d.scoringEnd && Date.now() < d.scoringEnd);
-  $("liveList").innerHTML = live.length ? live.map((d) => dCardHtml(d)).join("")
+  $("liveList").innerHTML = live.length ? live.map((d) => dCardHtml(d, { close: true })).join("")
     : `<div class="emptyBox"><div class="e">🔴</div>Nothing scoring right now.<br />When a draft finishes, it moves here and your players earn points from their real games for 7 days.</div>`;
   // results tab: done unarchived (+ closed list), plus finished locals
   const done = drafts.filter((d) => d.status === "done" && !d.archived);
