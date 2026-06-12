@@ -509,7 +509,8 @@ function dCardHtml(d, opts = {}) {
     <div class="avStack">${d.seats.slice(0, 4).map((x) => avHtml(x)).join("")}</div>
     <div class="info"><div class="nm">${esc(d.name)}</div><div class="st ${d.status !== "done" || (d.scoringEnd && Date.now() < d.scoringEnd) ? "go" : ""}">${st}</div></div>
     ${opts.close ? `<button class="cardX" data-arch="${d.code}">✕</button>` : ""}
-    ${opts.reopen ? `<button class="cardX" data-unarch="${d.code}" title="Reopen">↩</button>` : `<span style="font-size:18px">▶</span>`}
+    ${opts.leave ? `<button class="cardX" data-leave="${d.code}" title="Leave lobby">✕</button>` : ""}
+    ${opts.reopen ? `<button class="cardX" data-unarch="${d.code}" title="Reopen">↩</button>` : (!opts.close && !opts.leave ? `<span style="font-size:18px">▶</span>` : "")}
   </div>`;
 }
 function localCardHtml(d, i) {
@@ -531,10 +532,10 @@ function renderTabs() {
       <span style="font-size:20px">▶</span>
     </div>`).join("");
   // drafts tab: lobby + active online, plus local in-progress
-  const mine = drafts.filter((d) => d.status !== "done");
+  const mine = drafts.filter((d) => d.status !== "done" && !d.archived);
   const localList = locals().map((d, i) => ({ d, i })).filter((x) => x.d.picks.length < x.d.seats.length * x.d.rounds);
   $("draftList").innerHTML =
-    (mine.map((d) => dCardHtml(d)).join("") + localList.map((x) => localCardHtml(x.d, x.i)).join("")) ||
+    (mine.map((d) => dCardHtml(d, d.status === "lobby" ? { leave: true } : {})).join("") + localList.map((x) => localCardHtml(x.d, x.i)).join("")) ||
     `<div class="emptyBox"><div class="e">🐍</div>Nothing going. Start one from the Lobby tab!</div>`;
   const turnCount = mine.filter((d) => d.status === "active" && d.turn === me.name).length + invites.length;
   $("bdgDrafts").style.display = turnCount ? "block" : "none";
@@ -568,6 +569,8 @@ document.body.addEventListener("click", async (e) => {
   if (li !== null && li !== undefined) { openLocal(+li); return; }
   const join = e.target.closest("[data-join]")?.getAttribute("data-join");
   if (join) { joinByCode(join); return; }
+  const leave = e.target.getAttribute("data-leave");
+  if (leave) { e.stopPropagation(); await api(`/api/draft/${leave}/leave`, { userId: me.id }); gotoTab(curTab); return; }
 });
 $("joinCodeBtn").addEventListener("click", () => {
   const c = $("joinCodeIn").value.trim();

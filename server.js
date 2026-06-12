@@ -267,6 +267,25 @@ app.post("/api/draft/:code/shuffle", ah((req, res) => hostAction(req, res, (st) 
   st.chat.push({ name: "🎲", av: "🎲", img: "", text: "Draft order shuffled! New order: " + st.seats.map((x) => x.name).join(" → "), t: Date.now() });
 })));
 
+// leave a lobby draft (non-host removes self; host with no others deletes it)
+app.post("/api/draft/:code/leave", ah(async (req, res) => {
+  const code = req.params.code.toUpperCase();
+  const { userId } = req.body;
+  const r = await pool.query("SELECT state FROM drafts WHERE code=$1", [code]);
+  const st = r.rows[0]?.state;
+  if (!st) return res.status(404).json({ error: "Draft not found" });
+  if (st.status !== "lobby") return res.status(400).json({ error: "Draft already started" });
+  if (st.hostId === userId && st.seats.length <= 1) {
+    await pool.query("DELETE FROM drafts WHERE code=$1", [code]);
+  } else {
+    st.seats = st.seats.filter((s) => s.userId !== userId);
+    st.participants = (st.participants || []).filter((id) => id !== userId);
+    await pool.query("UPDATE drafts SET state=$1, participants=$2, updated=now() WHERE code=$3", [st, st.participants, code]);
+    broadcast(code);
+  }
+  res.json({ ok: true });
+}));
+
 // archive a finished draft (per user)
 app.post("/api/draft/:code/archive", ah(async (req, res) => {
   const code = req.params.code.toUpperCase();
@@ -279,6 +298,14 @@ app.post("/api/draft/:code/archive", ah(async (req, res) => {
   else if (!st.archivedBy.includes(userId)) st.archivedBy.push(userId);
   await pool.query("UPDATE drafts SET state=$1, updated=now() WHERE code=$2", [st, code]);
   res.json(st);
+}));
+
+// debug: how many rows in player_scores + trigger a fresh poll
+app.get("/api/stats/debug", ah(async (req, res) => {
+  const count = (await pool.query("SELECT COUNT(*) FROM player_scores")).rows[0].count;
+  const recent = (await pool.query("SELECT sport, player, pts, line, day FROM player_scores ORDER BY updated DESC LIMIT 10")).rows;
+  scoring.pollAll(pool).catch((e) => console.error("manual poll", e.message));
+  res.json({ rows: +count, recent, pollTriggered: true });
 }));
 
 // live scores for a draft (window-summed per player)
