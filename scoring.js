@@ -177,19 +177,23 @@ async function pollTennisDay(pool, dayDate) {
     try { sb = await jget(`https://site.api.espn.com/apis/site/v2/sports/tennis/${tour}/scoreboard?dates=${day}`); }
     catch { continue; }
     const wins = new Map();
-    const walk = (events) => {
-      for (const ev of events || []) {
-        for (const comp of ev.competitions || [ev]) {
-          for (const c of comp.competitors || []) {
-            const name = c.athlete?.displayName || c.team?.displayName;
-            if (!name || !c.winner) continue;
-            const poolName = matchPool(idx, name);
-            if (poolName) wins.set(poolName, (wins.get(poolName) || 0) + 1);
-          }
+    for (const ev of sb.events || []) {
+      // matches live in groupings[].competitions[], not ev.competitions
+      const allMatches = [];
+      for (const g of ev.groupings || []) {
+        for (const m of g.competitions || []) allMatches.push(m);
+      }
+      // fallback: direct competitions on event
+      for (const m of ev.competitions || []) allMatches.push(m);
+      for (const m of allMatches) {
+        for (const c of m.competitors || []) {
+          const name = c.athlete?.displayName || c.team?.displayName;
+          if (!name || !c.winner) continue;
+          const poolName = matchPool(idx, name);
+          if (poolName) wins.set(poolName, (wins.get(poolName) || 0) + 1);
         }
       }
-    };
-    walk(sb.events);
+    }
     for (const [poolName, w] of wins) {
       await upsertScore(pool, dayDate, "TEN", poolName, w * TENNIS_WIN, `${w} match win${w > 1 ? "s" : ""}`);
     }
