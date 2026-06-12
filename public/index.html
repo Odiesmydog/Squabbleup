@@ -496,6 +496,11 @@ $("bnav").addEventListener("click", (e) => {
   const t = e.target.closest("[data-bt]")?.getAttribute("data-bt");
   if (t) gotoTab(t);
 });
+document.addEventListener("click", (e) => {
+  const nav = e.target.closest("[data-nav]")?.getAttribute("data-nav");
+  if (nav === "home") { leaveDraft(); loadHome(); }
+});
+$("newDraft").addEventListener("click", () => { show("scrNew"); });
 function loadHome() { gotoTab(curTab in TABSCR ? curTab : "home"); }
 
 function dCardHtml(d, opts = {}) {
@@ -566,6 +571,8 @@ document.body.addEventListener("click", async (e) => {
   if (un) { await api(`/api/draft/${un}/archive`, { userId: me.id, undo: true }); gotoTab("results"); return; }
   const li = e.target.closest("[data-local]")?.getAttribute("data-local");
   if (li !== null && li !== undefined) { openLocal(+li); return; }
+  const join = e.target.closest("[data-join]")?.getAttribute("data-join");
+  if (join) { joinByCode(join); return; }
 });
 $("joinCodeBtn").addEventListener("click", () => {
   const c = $("joinCodeIn").value.trim();
