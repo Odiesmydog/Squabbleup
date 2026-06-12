@@ -309,6 +309,13 @@ app.get("/api/stats/debug", ah(async (req, res) => {
   res.json({ rows: +count, recent, pollTriggered: true });
 }));
 
+// teams playing today for a sport — used to filter draft pool
+app.get("/api/schedule/:sport", ah(async (req, res) => {
+  const sport = req.params.sport.toUpperCase();
+  const teams = await scoring.todaysTeams(sport);
+  res.json({ teams: teams ? [...teams] : null });
+}));
+
 // debug: show raw ESPN scoreboard events for a sport (e.g. /api/stats/espn/MLB)
 app.get("/api/stats/espn/:sport", ah(async (req, res) => {
   const sport = req.params.sport.toUpperCase();

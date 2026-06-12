@@ -613,6 +613,13 @@ $("createDraft").addEventListener("click", async () => {
 
 // ================= draft connection =================
 let draft = null, ws = null, pollT = null, posFilter = "All", q = "", activeTab = "pick", unreadChat = false, lastChatLen = 0;
+let todaysTeams = null; // set of team abbreviations playing today
+async function fetchTodaysTeams(sport) {
+  try {
+    const { teams } = await api(`/api/schedule/${sport}`);
+    todaysTeams = teams ? new Set(teams) : null;
+  } catch { todaysTeams = null; }
+}
 
 async function joinByCode(code) {
   code = code.toUpperCase();
@@ -700,13 +707,18 @@ function availPlayers() {
   const taken = new Set(draft.picks.map((p) => p.player));
   return PLAYERS
     .filter((p) => !taken.has(p.n))
-    .filter((p) => draft.sport === "ALL" || p.sp === draft.sport)
+    .filter((p) => p.sp === draft.sport)
+    .filter((p) => !todaysTeams || todaysTeams.has(p.tm))
     .filter((p) => posFilter === "All" || p.pos === posFilter)
     .filter((p) => p.n.toLowerCase().includes(q))
     .sort((a, b) => a.r - b.r);
 }
 function renderRoom() {
-  if (!$("scrRoom").classList.contains("on")) { show("scrRoom"); setTab("pick"); }
+  if (!$("scrRoom").classList.contains("on")) {
+    show("scrRoom"); setTab("pick");
+    todaysTeams = null;
+    Promise.all([fetchTodaysTeams(draft.sport), fetchRecentStats()]).then(() => renderRoom());
+  }
   document.querySelector('[data-tab="chat"]').style.display = draft.local ? "none" : "block";
   const round = roundOf(draft), turnIdx = pickerIndex(draft);
   const reversed = (round - 1) % 2 === 1;

@@ -70,7 +70,7 @@ function matchPool(idx, name) {
 // summary.boxscore.players: [{ statistics: [{ name, labels, athletes: [{ athlete:{displayName}, stats:[] }] }] } per team]
 function scoreSummary(family, summary) {
   const rules = RULES[family];
-  const out = new Map(); // displayName -> { pts, parts: [] }
+  const out = new Map(); // displayName -> { pts, allParts: [] }
   for (const team of summary?.boxscore?.players || []) {
     for (const grp of team.statistics || []) {
       const gname = String(grp.name || "").toLowerCase();
@@ -78,23 +78,44 @@ function scoreSummary(family, summary) {
       for (const a of grp.athletes || []) {
         const name = a?.athlete?.displayName;
         if (!name) continue;
-        let pts = 0; const parts = [];
+        let pts = 0; const allParts = [];
         labels.forEach((lbl, i) => {
-          const mult = rules[`${gname}:${lbl}`] ?? rules[`*:${lbl}`];
-          if (mult === undefined) return;
           const raw = String(a.stats?.[i] ?? "0");
           const val = parseFloat(raw.replace(/[^0-9.\-]/g, "")) || 0;
-          if (val) { pts += val * mult; parts.push(`${val} ${lbl.toLowerCase()}`); }
+          if (!val) return;
+          // collect every non-zero stat for display
+          allParts.push(`${val} ${lbl.toLowerCase()}`);
+          // only apply fantasy multiplier if rule exists
+          const mult = rules[`${gname}:${lbl}`] ?? rules[`*:${lbl}`];
+          if (mult !== undefined) pts += val * mult;
         });
-        if (pts || parts.length) {
+        if (pts || allParts.length) {
           const cur = out.get(name) || { pts: 0, parts: [] };
-          cur.pts += pts; cur.parts.push(...parts);
+          cur.pts += pts; cur.parts.push(...allParts);
           out.set(name, cur);
         }
       }
     }
   }
   return out;
+}
+
+// return set of team abbreviations playing today for a sport
+async function todaysTeams(sport) {
+  const pair = LEAGUES[sport];
+  if (!pair) return null;
+  const day = dstr(new Date());
+  try {
+    const sb = await jget(`https://site.api.espn.com/apis/site/v2/sports/${pair[0]}/${pair[1]}/scoreboard?dates=${day}`);
+    const teams = new Set();
+    for (const ev of sb.events || []) {
+      for (const comp of ev.competitions?.[0]?.competitors || []) {
+        const abbr = comp.team?.abbreviation;
+        if (abbr) teams.add(abbr.toUpperCase());
+      }
+    }
+    return teams;
+  } catch { return null; }
 }
 
 // ---------- pollers ----------
@@ -122,7 +143,7 @@ async function pollLeagueDay(pool, sport, dayDate) {
     for (const [espnName, v] of scored) {
       const poolName = matchPool(idx, espnName);
       if (!poolName) continue;
-      await upsertScore(pool, dayDate, sport, poolName, Math.round(v.pts * 10) / 10, v.parts.slice(0, 6).join(", "));
+      await upsertScore(pool, dayDate, sport, poolName, Math.round(v.pts * 10) / 10, v.parts.join(", "));
     }
   }
 }
@@ -266,4 +287,4 @@ async function seedDemo(pool) {
   console.log("DEMO stats seeded (today + yesterday). Unset DEMO_STATS for real data only.");
 }
 
-module.exports = { pollAll, draftScores, draftScoreDetail, seedDemo, scoreSummary, RULES, FAMILY, golfPoints, matchPool, buildPoolIndex, norm };
+module.exports = { pollAll, draftScores, draftScoreDetail, seedDemo, scoreSummary, todaysTeams, RULES, FAMILY, golfPoints, matchPool, buildPoolIndex, norm };
