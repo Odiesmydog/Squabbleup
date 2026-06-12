@@ -559,16 +559,21 @@ function renderProfileTab() {
 }
 $("editProfile").addEventListener("click", () => openProfile(false));
 document.body.addEventListener("click", async (e) => {
-  const arch = e.target.getAttribute("data-arch");
-  if (arch) { await api(`/api/draft/${arch}/archive`, { userId: me.id }); gotoTab("results"); return; }
-  const un = e.target.getAttribute("data-unarch");
-  if (un) { await api(`/api/draft/${un}/archive`, { userId: me.id, undo: true }); gotoTab("results"); return; }
+  const btn = e.target.closest("button[data-arch],button[data-unarch],button[data-leave]");
+  if (btn) {
+    e.stopPropagation();
+    const arch = btn.getAttribute("data-arch");
+    const un = btn.getAttribute("data-unarch");
+    const leave = btn.getAttribute("data-leave");
+    if (arch) { await api(`/api/draft/${arch}/archive`, { userId: me.id }); gotoTab(curTab); }
+    else if (un) { await api(`/api/draft/${un}/archive`, { userId: me.id, undo: true }); gotoTab("results"); }
+    else if (leave) { await api(`/api/draft/${leave}/leave`, { userId: me.id }); gotoTab(curTab); }
+    return;
+  }
   const li = e.target.closest("[data-local]")?.getAttribute("data-local");
   if (li !== null && li !== undefined) { openLocal(+li); return; }
   const join = e.target.closest("[data-join]")?.getAttribute("data-join");
   if (join) { joinByCode(join); return; }
-  const leave = e.target.getAttribute("data-leave");
-  if (leave) { e.stopPropagation(); await api(`/api/draft/${leave}/leave`, { userId: me.id }); gotoTab(curTab); return; }
 });
 $("joinCodeBtn").addEventListener("click", () => {
   const c = $("joinCodeIn").value.trim();
