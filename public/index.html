@@ -257,8 +257,7 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
     <h1 class="title">New Squabble</h1>
     <div class="stepLbl">1 · Pick a sport</div>
     <div class="choiceGrid" id="sportGrid">
-      <button class="choice sel" data-sp="ALL"><span class="e">🌍</span>All</button>
-      <button class="choice" data-sp="NFL"><span class="e">🏈</span>NFL</button>
+      <button class="choice sel" data-sp="NFL"><span class="e">🏈</span>NFL</button>
       <button class="choice" data-sp="NBA"><span class="e">🏀</span>NBA</button>
       <button class="choice" data-sp="MLB"><span class="e">⚾</span>MLB</button>
       <button class="choice" data-sp="NHL"><span class="e">🏒</span>NHL</button>
@@ -363,8 +362,7 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
     <h2>Pass & play</h2>
     <div class="lbl">Sport</div>
     <div class="choiceGrid" id="localSportGrid" style="margin-bottom:10px">
-      <button class="choice sel" data-sp="ALL"><span class="e">🌍</span>All</button>
-      <button class="choice" data-sp="NFL"><span class="e">🏈</span>NFL</button>
+      <button class="choice sel" data-sp="NFL"><span class="e">🏈</span>NFL</button>
       <button class="choice" data-sp="NBA"><span class="e">🏀</span>NBA</button>
       <button class="choice" data-sp="MLB"><span class="e">⚾</span>MLB</button>
       <button class="choice" data-sp="NHL"><span class="e">🏒</span>NHL</button>
@@ -594,7 +592,7 @@ async function shareText(text, url) {
 }
 
 // ================= wizard =================
-let wizSport = "ALL", wizRounds = 3;
+let wizSport = "NFL", wizRounds = 3;
 $("sportGrid").addEventListener("click", (e) => {
   const b = e.target.closest(".choice"); if (!b) return;
   document.querySelectorAll("#sportGrid .choice").forEach((c) => c.classList.remove("sel"));
@@ -818,7 +816,7 @@ function renderMatchup(targetId) {
         return `<div class="muP"><span class="nm2">${esc(p.n)}</span><span class="ln">${sc ? esc(sc.line) : "no games yet"}</span><span class="pp">${(sc?.pts || 0).toFixed(1)}</span></div>${log}`;
       }).join("") || '<div class="muP"><span class="ln">No picks yet</span></div>'}
     </div>`).join("") +
-    `<div class="scoreNote">Standard fantasy scoring per sport · same stats source for everyone · updates every few minutes${draft.scoring ? ` · scoring window ends ${new Date(draft.scoring.end).toLocaleDateString()}` : ""}</div>`;
+    `<div class="scoreNote">Tap a row to see roster · updates every 5 min${draft.scoring ? ` · scoring ends ${new Date(draft.scoring.end).toLocaleDateString()}` : ""}</div>`;
   $(targetId).onclick = (e) => {
     const i = e.target.closest("[data-mu]")?.getAttribute("data-mu");
     if (i !== null && i !== undefined) $("mu" + i).classList.toggle("open");
@@ -855,7 +853,7 @@ function saveLocals(arr) { localStorage.setItem("squp_local", JSON.stringify(arr
 
 let lWiz = null;
 $("newLocal").addEventListener("click", () => {
-  lWiz = { sport: "ALL", rounds: 3, seats: [{ name: me.name, av: me.av, img: me.img, bot: false, roster: [] }] };
+  lWiz = { sport: "NFL", rounds: 3, seats: [{ name: me.name, av: me.av, img: me.img, bot: false, roster: [] }] };
   document.querySelectorAll("#localSportGrid .choice").forEach((c, i) => c.classList.toggle("sel", i === 0));
   document.querySelectorAll("#localRoundGrid .choice").forEach((c, i) => c.classList.toggle("sel", i === 0));
   renderLocalSeats();

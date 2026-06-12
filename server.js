@@ -115,10 +115,11 @@ function applyPick(st, p) {
   st.picks.push({ seat: idx, player: p.n, pos: p.pos, sp: p.sp, tm: p.tm });
   st.seats[idx].roster.push({ n: p.n, pos: p.pos, sp: p.sp, tm: p.tm });
 }
-const SCORING_DAYS = +(process.env.SCORING_DAYS || 7);
+const SCORING_DAYS = { NFL: 7, CFB: 7, NBA: 1, CBB: 1, MLB: 1, NHL: 1, GOLF: 4, TEN: 1 };
 function finishDraft(st) {
   st.status = "done";
-  st.scoring = { start: Date.now(), end: Date.now() + SCORING_DAYS * 864e5 };
+  const days = SCORING_DAYS[st.sport] || 1;
+  st.scoring = { start: Date.now(), end: Date.now() + days * 864e5 };
 }
 
 // ---------------- api ----------------
@@ -180,7 +181,7 @@ app.post("/api/draft/create", ah(async (req, res) => {
   for (;;) { code = code6(); const c = await pool.query("SELECT 1 FROM drafts WHERE code=$1", [code]); if (!c.rows.length) break; }
   const state = {
     code, name: String(name || "Squabble").slice(0, 24),
-    sport: ["ALL","NFL","NBA","MLB","NHL","GOLF","TEN","CBB","CFB"].includes(sport) ? sport : "ALL",
+    sport: ["NFL","NBA","MLB","NHL","GOLF","TEN","CBB","CFB"].includes(sport) ? sport : "NFL",
     rounds: [3, 6].includes(+rounds) ? +rounds : 3,
     status: "lobby", hostId,
     seats: [{ userId: hostId, name: u.name, av: u.av, img: u.img, bot: false, roster: [] }],
