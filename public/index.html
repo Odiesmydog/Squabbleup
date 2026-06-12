@@ -1,0 +1,940 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SquabbleUP — Snake drafts with your friends</title>
+<meta name="description" content="Live snake drafts with friends across every sport. Share a link, everyone picks from their own phone." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@600;700;800&display=swap" rel="stylesheet" />
+<style>
+:root {
+  --bg: #2B2926; --panel: #3A3733; --raised: #46423D; --line: #54504A;
+  --text: #F2EFEA; --dim: #A6A099;
+  --green: #7FB94C; --green-d: #5E9134;
+  --gold: #F0C04C; --gold-d: #C39A33;
+  --red: #E2574C; --ink: #203012;
+  --display: "Fredoka", sans-serif; --body: "Nunito", sans-serif; --r: 14px;
+}
+* { box-sizing: border-box; margin: 0; -webkit-tap-highlight-color: transparent; }
+body { background: var(--bg); color: var(--text); font-family: var(--body); font-size: 16px; font-weight: 600; line-height: 1.4; }
+button { font-family: inherit; cursor: pointer; border: none; color: inherit; background: none; }
+input { font-family: inherit; }
+:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+.app { max-width: 540px; margin: 0 auto; padding: 14px 14px 132px; min-height: 100vh; }
+
+.big { display: block; width: 100%; font-family: var(--display); font-weight: 700; font-size: 20px; padding: 15px; border-radius: var(--r); background: var(--green); color: var(--ink); box-shadow: 0 5px 0 var(--green-d); transition: transform .06s, box-shadow .06s; text-align: center; }
+.big:active { transform: translateY(4px); box-shadow: 0 1px 0 var(--green-d); }
+.big.gold { background: var(--gold); box-shadow: 0 5px 0 var(--gold-d); color: #3A2C08; }
+.big.gold:active { box-shadow: 0 1px 0 var(--gold-d); }
+.big.flat { background: var(--raised); color: var(--text); box-shadow: 0 5px 0 #2e2b28; font-size: 16px; }
+.big.flat:active { box-shadow: 0 1px 0 #2e2b28; }
+.big[disabled] { opacity: .5; pointer-events: none; }
+.mini { font-family: var(--display); font-weight: 600; font-size: 14px; background: var(--raised); border-radius: 10px; padding: 8px 14px; box-shadow: 0 3px 0 #2e2b28; }
+.mini:active { transform: translateY(2px); box-shadow: 0 1px 0 #2e2b28; }
+.mini.green { background: var(--green); color: var(--ink); box-shadow: 0 3px 0 var(--green-d); }
+
+.top { display: flex; align-items: center; justify-content: space-between; padding: 4px 2px 14px; gap: 8px; }
+.wordmark { font-family: var(--display); font-weight: 700; font-size: 23px; }
+.wordmark b { color: var(--green); }
+.meChip { display: flex; align-items: center; gap: 8px; background: var(--panel); border-radius: 999px; padding: 5px 13px 5px 5px; box-shadow: 0 3px 0 #232120; max-width: 46%; }
+.meChip span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.av { width: 34px; height: 34px; border-radius: 50%; background: var(--raised); display: grid; place-items: center; font-size: 19px; overflow: hidden; flex-shrink: 0; }
+.av img { width: 100%; height: 100%; object-fit: cover; }
+
+.screen { display: none; }
+.screen.on { display: block; animation: pop .18s ease; }
+@keyframes pop { from { opacity: 0; transform: translateY(6px); } }
+h1.title { font-family: var(--display); font-weight: 700; font-size: 27px; margin: 4px 0 4px; }
+p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
+.stepLbl { font-family: var(--display); font-size: 13px; color: var(--gold); font-weight: 600; letter-spacing: 1px; text-transform: uppercase; margin: 16px 0 8px; }
+
+.dCard { background: var(--panel); border-radius: var(--r); padding: 13px 15px; margin-bottom: 10px; display: flex; align-items: center; gap: 12px; box-shadow: 0 4px 0 #232120; cursor: pointer; }
+.dCard:active { transform: translateY(2px); box-shadow: 0 2px 0 #232120; }
+.dCard .info { flex: 1; min-width: 0; }
+.dCard .nm { font-family: var(--display); font-weight: 600; font-size: 16px; }
+.dCard .st { font-size: 12.5px; color: var(--dim); }
+.dCard .st.go { color: var(--gold); font-weight: 800; }
+.dCard.invite { border: 2px solid var(--gold); }
+.avStack { display: flex; }
+.avStack .av { width: 28px; height: 28px; font-size: 15px; margin-left: -8px; border: 2px solid var(--panel); }
+.avStack .av:first-child { margin-left: 0; }
+.emptyBox { background: var(--panel); border: 2px dashed var(--line); border-radius: var(--r); text-align: center; padding: 30px 18px; color: var(--dim); margin-bottom: 14px; }
+.emptyBox .e { font-size: 38px; margin-bottom: 6px; }
+
+.choiceGrid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 9px; margin-bottom: 4px; }
+.choiceGrid.two { grid-template-columns: 1fr 1fr; }
+.choice { background: var(--panel); border-radius: var(--r); padding: 13px 6px; text-align: center; box-shadow: 0 4px 0 #232120; font-family: var(--display); font-weight: 600; font-size: 14.5px; border: 3px solid transparent; }
+.choice .e { display: block; font-size: 27px; margin-bottom: 4px; }
+.choice.sel { border-color: var(--green); background: var(--raised); }
+.choice:active { transform: translateY(2px); box-shadow: 0 2px 0 #232120; }
+
+.fRow { display: flex; align-items: center; gap: 10px; background: var(--panel); border-radius: var(--r); padding: 9px 12px; margin-bottom: 8px; box-shadow: 0 3px 0 #232120; }
+.fRow .fn { flex: 1; font-weight: 800; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fRow .tag { font-size: 11px; color: var(--green); font-weight: 800; flex-shrink: 0; }
+.fRow .tag.host { color: var(--gold); }
+.fRow .rm { color: var(--dim); font-size: 17px; padding: 4px 8px; }
+.addRow { display: flex; gap: 8px; margin: 8px 0 4px; }
+.addRow input { flex: 1; background: var(--panel); border: 2px solid var(--line); border-radius: 12px; padding: 11px 14px; color: var(--text); font-size: 16px; font-weight: 700; min-width: 0; }
+.addRow input::placeholder { color: var(--dim); font-weight: 600; }
+
+.codeBox { background: var(--raised); border-radius: var(--r); text-align: center; padding: 14px; margin-bottom: 12px; box-shadow: 0 4px 0 #2e2b28; }
+.codeBox .c { font-family: var(--display); font-weight: 700; font-size: 34px; letter-spacing: 7px; color: var(--gold); }
+.codeBox .l { font-size: 12px; color: var(--dim); }
+
+.rail { background: var(--panel); border-radius: var(--r); padding: 11px 10px 7px; margin-bottom: 10px; box-shadow: 0 4px 0 #232120; }
+.railRow { display: flex; align-items: flex-start; justify-content: space-between; gap: 3px; }
+.railSeat { display: flex; flex-direction: column; align-items: center; gap: 3px; flex: 1; min-width: 0; opacity: 0.55; transition: opacity .2s, transform .2s; }
+.railSeat .av { border: 3px solid transparent; width: 32px; height: 32px; font-size: 17px; }
+.railSeat.now { opacity: 1; transform: scale(1.1); }
+.railSeat.now .av { border-color: var(--gold); }
+.railSeat .rn { font-size: 10px; color: var(--dim); font-weight: 800; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.railSeat.now .rn { color: var(--gold); }
+.railDir { display: flex; align-items: center; justify-content: center; gap: 8px; font-family: var(--display); font-size: 12.5px; color: var(--dim); padding-top: 6px; }
+.railDir .snake { font-size: 16px; display: inline-block; transition: transform .3s; }
+.railDir .snake.flip { transform: scaleX(-1); }
+
+.turnBanner { font-family: var(--display); font-weight: 700; font-size: 20px; text-align: center; background: var(--gold); color: #3A2C08; border-radius: var(--r); padding: 11px; margin-bottom: 10px; box-shadow: 0 5px 0 var(--gold-d); }
+.turnBanner.waiting { background: var(--raised); color: var(--dim); box-shadow: 0 5px 0 #2e2b28; }
+
+.tabs { display: flex; gap: 7px; margin-bottom: 10px; }
+.tab { flex: 1; font-family: var(--display); font-weight: 600; font-size: 14px; background: var(--panel); color: var(--dim); border-radius: 11px; padding: 10px 0; box-shadow: 0 3px 0 #232120; text-align: center; }
+.tab.on { background: var(--green); color: var(--ink); box-shadow: 0 3px 0 var(--green-d); }
+.tab .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--red); margin-left: 5px; vertical-align: 2px; }
+
+.filters { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 9px; scrollbar-width: none; }
+.fchip { font-family: var(--display); font-size: 13px; background: var(--panel); color: var(--dim); border-radius: 999px; padding: 7px 14px; white-space: nowrap; box-shadow: 0 3px 0 #232120; font-weight: 600; flex-shrink: 0; }
+.fchip.on { background: var(--green); color: var(--ink); box-shadow: 0 3px 0 var(--green-d); }
+.search { width: 100%; background: var(--panel); border: 2px solid var(--line); border-radius: 12px; padding: 11px 14px; color: var(--text); font-size: 16px; font-weight: 700; margin-bottom: 9px; }
+.pRow { display: flex; align-items: center; gap: 10px; background: var(--panel); border-radius: 12px; padding: 8px 8px 8px 13px; margin-bottom: 7px; box-shadow: 0 3px 0 #232120; }
+.pRow .pi { flex: 1; min-width: 0; }
+.pRow .pn { font-weight: 800; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pRow .pd { font-size: 12px; color: var(--dim); }
+.spTag { font-family: var(--display); font-size: 10px; font-weight: 600; background: var(--raised); border-radius: 5px; padding: 2px 6px; margin-right: 5px; }
+.draftBtn { font-family: var(--display); font-weight: 700; font-size: 14.5px; background: var(--green); color: var(--ink); border-radius: 10px; padding: 10px 17px; box-shadow: 0 3px 0 var(--green-d); flex-shrink: 0; }
+.draftBtn:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--green-d); }
+
+.bCol { background: var(--panel); border-radius: var(--r); padding: 12px; margin-bottom: 10px; box-shadow: 0 4px 0 #232120; }
+.bColHead { display: flex; align-items: center; gap: 8px; font-family: var(--display); font-weight: 600; font-size: 15px; margin-bottom: 7px; }
+.bPick { display: flex; gap: 8px; font-size: 13px; padding: 4px 0; border-bottom: 1px solid var(--raised); }
+.bPick:last-child { border-bottom: none; }
+.bPick .rd { color: var(--dim); font-weight: 800; width: 22px; flex-shrink: 0; }
+.bPick .e { color: var(--dim); }
+
+/* chat */
+.chatBox { background: var(--panel); border-radius: var(--r); box-shadow: 0 4px 0 #232120; display: flex; flex-direction: column; height: 56vh; }
+.chatMsgs { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 9px; }
+.cMsg { display: flex; gap: 8px; align-items: flex-end; max-width: 86%; }
+.cMsg .av { width: 26px; height: 26px; font-size: 14px; }
+.cMsg .bub { background: var(--raised); border-radius: 14px 14px 14px 4px; padding: 8px 12px; font-size: 14px; }
+.cMsg .who { font-size: 10.5px; color: var(--dim); font-weight: 800; margin-bottom: 1px; }
+.cMsg.mine { align-self: flex-end; flex-direction: row-reverse; }
+.cMsg.mine .bub { background: var(--green); color: var(--ink); border-radius: 14px 14px 4px 14px; }
+.cMsg.mine .who { display: none; }
+.chatIn { display: flex; gap: 8px; padding: 10px; border-top: 2px solid var(--raised); }
+.chatIn input { flex: 1; background: var(--bg); border: 2px solid var(--line); border-radius: 999px; padding: 10px 15px; color: var(--text); font-size: 15px; font-weight: 700; min-width: 0; }
+.chatIn button { font-size: 19px; background: var(--green); color: var(--ink); border-radius: 50%; width: 42px; height: 42px; box-shadow: 0 3px 0 var(--green-d); flex-shrink: 0; }
+.chatEmpty { color: var(--dim); text-align: center; font-size: 13px; margin: auto; }
+
+.modal { position: fixed; inset: 0; background: rgba(20,18,16,0.78); display: none; place-items: center; padding: 18px; z-index: 50; }
+.modal.on { display: grid; }
+.sheet { background: var(--panel); border-radius: 18px; padding: 20px; width: 100%; max-width: 420px; box-shadow: 0 8px 0 #1d1b19; max-height: 88vh; overflow-y: auto; }
+.sheet h2 { font-family: var(--display); font-size: 20px; margin-bottom: 12px; }
+.avGrid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin: 8px 0 12px; }
+.avPick { font-size: 23px; background: var(--raised); border-radius: 12px; padding: 8px 0; text-align: center; border: 3px solid transparent; box-shadow: 0 3px 0 #2e2b28; }
+.avPick.sel { border-color: var(--green); }
+.field { width: 100%; background: var(--bg); border: 2px solid var(--line); border-radius: 12px; padding: 12px 14px; color: var(--text); font-size: 16px; font-weight: 700; margin-bottom: 10px; }
+.lbl { font-size: 12.5px; color: var(--dim); font-weight: 800; margin-bottom: 5px; }
+.fab { position: fixed; left: 50%; transform: translateX(-50%); bottom: 16px; width: min(512px, calc(100% - 28px)); z-index: 10; display: flex; gap: 9px; }
+.fab .big { flex: 1; }
+.note { font-size: 12.5px; color: var(--dim); text-align: center; margin-top: 12px; }
+/* bottom nav */
+.bnav { position: fixed; left: 50%; transform: translateX(-50%); bottom: 0; width: min(540px, 100%); background: var(--panel); border-top: 2px solid var(--raised); display: flex; z-index: 20; padding-bottom: env(safe-area-inset-bottom); }
+.bnav button { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 9px 0 7px; color: var(--dim); font-family: var(--display); font-size: 10.5px; font-weight: 600; position: relative; }
+.bnav button .i { font-size: 20px; }
+.bnav button.on { color: var(--green); }
+.bnav button .bdg { position: absolute; top: 4px; right: 18%; background: var(--red); color: #fff; font-size: 9px; border-radius: 8px; padding: 1px 5px; font-weight: 800; }
+.muRow { display: flex; align-items: center; gap: 10px; background: var(--panel); border-radius: var(--r); padding: 11px 13px; margin-bottom: 8px; box-shadow: 0 4px 0 #232120; cursor: pointer; }
+.muRow .rank { font-family: var(--display); font-weight: 700; font-size: 17px; color: var(--dim); width: 24px; }
+.muRow.first .rank { color: var(--gold); }
+.muRow .who { flex: 1; min-width: 0; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.muRow .pts { font-family: var(--display); font-weight: 700; font-size: 19px; color: var(--green); }
+.muDetail { background: var(--bg); border-radius: 10px; margin: -4px 0 8px; padding: 8px 12px; display: none; }
+.muDetail.open { display: block; }
+.muP { display: flex; gap: 8px; font-size: 12.5px; padding: 4px 0; border-bottom: 1px solid var(--raised); align-items: baseline; }
+.muP:last-child { border-bottom: none; }
+.muP .nm2 { flex: 1; font-weight: 700; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.muP .ln { color: var(--dim); font-size: 11px; flex: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.muP .pp { font-weight: 800; color: var(--green); }
+.scoreNote { font-size: 11.5px; color: var(--dim); text-align: center; margin: 10px 0; }
+.cardX { background: var(--raised); color: var(--dim); border-radius: 8px; width: 30px; height: 30px; font-size: 14px; flex-shrink: 0; box-shadow: 0 2px 0 #2e2b28; }
+.joinRow { display: flex; gap: 8px; margin: 0 0 14px; }
+.joinRow input { flex: 1; background: var(--panel); border: 2px solid var(--line); border-radius: 12px; padding: 11px 14px; color: var(--text); font-size: 16px; font-weight: 800; text-transform: uppercase; letter-spacing: 2px; min-width: 0; }
+.localTag { font-size: 9.5px; font-weight: 800; background: var(--raised); color: var(--gold); border-radius: 4px; padding: 2px 6px; }
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: 84px; background: var(--raised); border-radius: 999px; padding: 10px 20px; font-weight: 800; font-size: 14px; box-shadow: 0 4px 0 #232120; z-index: 60; display: none; }
+.err { color: var(--red); }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <div class="top">
+    <div class="wordmark">Squabble<b>UP</b></div>
+    <button class="meChip" id="meChip"><span class="av" id="meAv">🙂</span><span id="meName">…</span></button>
+  </div>
+
+  <!-- TAB: LOBBY -->
+  <section class="screen" id="scrHome">
+    <h1 class="title">Lobby</h1>
+    <p class="sub">Start a squabble or jump into one.</p>
+    <div id="inviteList"></div>
+    <div class="joinRow">
+      <input id="joinCodeIn" placeholder="ROOM CODE" maxlength="6" />
+      <button class="mini green" id="joinCodeBtn">Join</button>
+    </div>
+    <button class="big" id="newDraft" style="margin-bottom:10px">+ New online Squabble</button>
+    <button class="big flat" id="newLocal">📱 Pass & play (one phone)</button>
+  </section>
+
+  <!-- TAB: MY DRAFTS -->
+  <section class="screen" id="scrDrafts">
+    <h1 class="title">My drafts</h1>
+    <p class="sub">Lobbies and live drafts you're in.</p>
+    <div id="draftList"></div>
+  </section>
+
+  <!-- TAB: LIVE -->
+  <section class="screen" id="scrLive">
+    <h1 class="title">Live scoring</h1>
+    <p class="sub">Finished drafts racking up points right now.</p>
+    <div id="liveList"></div>
+    <div class="stepLbl">How scoring works</div>
+    <div class="bCol" style="cursor:default">
+      <div class="bPick"><span class="rd">1</span><span>Finish a draft — that locks your roster.</span></div>
+      <div class="bPick"><span class="rd">2</span><span>A 7-day scoring window opens. Your players earn fantasy points from their real games.</span></div>
+      <div class="bPick"><span class="rd">3</span><span>Stats come from live box scores, refreshed every few minutes — identical for everyone in the draft.</span></div>
+      <div class="bPick"><span class="rd">4</span><span>Highest total when the window closes wins the squabble. 👑</span></div>
+    </div>
+  </section>
+
+  <!-- TAB: RESULTS -->
+  <section class="screen" id="scrResults">
+    <h1 class="title">Results</h1>
+    <p class="sub">Final standings. ✕ closes a draft into your archive.</p>
+    <div id="resultsList"></div>
+    <div class="stepLbl" id="closedLbl" style="display:none">Closed</div>
+    <div id="closedList"></div>
+  </section>
+
+  <!-- TAB: PROFILE -->
+  <section class="screen" id="scrProfile">
+    <h1 class="title">Profile</h1>
+    <div class="fRow" style="padding:13px 14px">
+      <span class="av" id="profAvBig" style="width:50px;height:50px;font-size:28px"></span>
+      <span class="fn" id="profNameBig" style="font-size:18px"></span>
+      <button class="mini green" id="editProfile">Edit</button>
+    </div>
+    <div class="codeBox"><div class="l">YOUR FRIEND CODE — share it!</div><div class="c" id="myCode">······</div></div>
+    <button class="big flat" id="shareCode" style="margin-bottom:14px">📤 Share my code</button>
+    <div class="stepLbl">Add a friend</div>
+    <div class="addRow">
+      <input id="codeIn" placeholder="Enter their code" maxlength="6" style="text-transform:uppercase" />
+      <button class="mini green" id="addFriendBtn">Add</button>
+    </div>
+    <div class="err" id="friendErr" style="font-size:13px;margin:4px 2px"></div>
+    <div class="stepLbl">Your crew</div>
+    <div id="friendsList"></div>
+    <div class="stepLbl">How your account works</div>
+    <div class="bCol" style="cursor:default">
+      <div class="bPick"><span>No password, no email. This device is your login — your profile, drafts, friends and chats are saved on SquabbleUP's servers under an ID this browser remembers.</span></div>
+      <div class="bPick"><span class="e">⚠️ Clearing browser data or switching devices starts a fresh player, so don't clear it mid-squabble. Pass &amp; play drafts live only on this device.</span></div>
+    </div>
+  </section>
+
+  <!-- NEW DRAFT -->
+  <section class="screen" id="scrNew">
+    <button class="mini" data-nav="home">‹ Back</button>
+    <h1 class="title">New Squabble</h1>
+    <div class="stepLbl">1 · Pick a sport</div>
+    <div class="choiceGrid" id="sportGrid">
+      <button class="choice sel" data-sp="ALL"><span class="e">🌍</span>All</button>
+      <button class="choice" data-sp="NFL"><span class="e">🏈</span>NFL</button>
+      <button class="choice" data-sp="NBA"><span class="e">🏀</span>NBA</button>
+      <button class="choice" data-sp="MLB"><span class="e">⚾</span>MLB</button>
+      <button class="choice" data-sp="NHL"><span class="e">🏒</span>NHL</button>
+      <button class="choice" data-sp="GOLF"><span class="e">⛳</span>Golf</button>
+      <button class="choice" data-sp="TEN"><span class="e">🎾</span>Tennis</button>
+      <button class="choice" data-sp="CBB"><span class="e">🏀</span>NCAA BB</button>
+      <button class="choice" data-sp="CFB"><span class="e">🏈</span>NCAA FB</button>
+    </div>
+    <div class="stepLbl">2 · How many rounds?</div>
+    <div class="choiceGrid two" id="roundGrid">
+      <button class="choice sel" data-rd="3"><span class="e">⚡</span>Quick · 3</button>
+      <button class="choice" data-rd="6"><span class="e">🏆</span>Full · 6</button>
+    </div>
+    <button class="big gold" id="createDraft" style="margin-top:16px">Create draft room</button>
+    <p class="note">You'll get a room code + link to send your friends. Up to 8 drafters.</p>
+  </section>
+
+  <!-- LOBBY -->
+  <section class="screen" id="scrLobby">
+    <button class="mini" data-nav="home">‹ My drafts</button>
+    <h1 class="title" id="lobbyTitle">Lobby</h1>
+    <div class="codeBox"><div class="l">ROOM CODE</div><div class="c" id="roomCode">······</div></div>
+    <button class="big" id="shareDraft">📤 Invite friends — share link</button>
+    <div class="stepLbl">In the room <span id="seatCount"></span></div>
+    <div id="lobbySeats"></div>
+    <div id="hostTools">
+      <div class="addRow">
+        <button class="mini" id="lobbyAddBot" style="flex:1">🤖 Add a bot</button>
+        <button class="mini" id="lobbyInviteFriends" style="flex:1">👥 Invite from friends</button>
+      </div>
+      <div class="addRow">
+        <button class="mini" id="lobbyShuffle" style="flex:1">🎲 Randomize draft order</button>
+      </div>
+      <button class="big gold" id="startBtn" style="margin-top:12px">Start the draft</button>
+    </div>
+    <p class="note" id="lobbyNote">Waiting for the host to start…</p>
+    <div class="stepLbl">Lobby chat</div>
+    <div class="chatBox" style="height:34vh">
+      <div class="chatMsgs" id="lobbyChat"></div>
+      <div class="chatIn"><input id="lobbyChatIn" placeholder="Say something…" maxlength="280" /><button id="lobbyChatSend">➤</button></div>
+    </div>
+  </section>
+
+  <!-- DRAFT ROOM -->
+  <section class="screen" id="scrRoom">
+    <div style="display:flex;gap:8px;margin-bottom:10px">
+      <button class="mini" data-nav="home">‹ Drafts</button>
+    </div>
+    <div class="rail">
+      <div class="railRow" id="railRow"></div>
+      <div class="railDir"><span class="snake" id="snakeIcon">🐍</span><span id="railLbl"></span></div>
+    </div>
+    <div class="turnBanner" id="turnBanner"></div>
+    <div class="tabs">
+      <button class="tab on" data-tab="pick">🎯 Pick</button>
+      <button class="tab" data-tab="board">📋 Board</button>
+      <button class="tab" data-tab="chat">💬 Chat<span class="dot" id="chatDot" style="display:none"></span></button>
+      <button class="tab" data-tab="matchup">⚔️</button>
+    </div>
+    <div id="tabPick">
+      <input class="search" id="pSearch" placeholder="Search players" />
+      <div class="filters" id="posFilters"></div>
+      <div id="pool"></div>
+    </div>
+    <div id="tabBoard" style="display:none"></div>
+    <div id="tabMatchup" style="display:none"></div>
+    <div id="tabChat" style="display:none">
+      <div class="chatBox">
+        <div class="chatMsgs" id="roomChat"></div>
+        <div class="chatIn"><input id="roomChatIn" placeholder="Talk your trash…" maxlength="280" /><button id="roomChatSend">➤</button></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- DONE -->
+  <section class="screen" id="scrDone">
+    <button class="mini" data-nav="home">‹ My drafts</button>
+    <h1 class="title" id="doneTitle">Draft complete! 🎉</h1>
+    <p class="sub" id="doneSub"></p>
+    <div id="doneStandings"></div>
+    <div class="scoreNote" id="doneScoreNote"></div>
+    <div class="stepLbl">Group chat</div>
+    <div class="chatBox" style="height:36vh">
+      <div class="chatMsgs" id="doneChat"></div>
+      <div class="chatIn"><input id="doneChatIn" placeholder="GG…" maxlength="280" /><button id="doneChatSend">➤</button></div>
+    </div>
+  </section>
+
+</div>
+
+<nav class="bnav" id="bnav">
+  <button data-bt="home" class="on"><span class="i">🏠</span>Lobby</button>
+  <button data-bt="drafts"><span class="i">📋</span>Drafts<span class="bdg" id="bdgDrafts" style="display:none"></span></button>
+  <button data-bt="live"><span class="i">🔴</span>Live</button>
+  <button data-bt="results"><span class="i">🏆</span>Results</button>
+  <button data-bt="profile"><span class="i">👤</span>Profile</button>
+</nav>
+
+<!-- pass & play setup modal -->
+<div class="modal" id="localModal">
+  <div class="sheet">
+    <h2>Pass & play</h2>
+    <div class="lbl">Sport</div>
+    <div class="choiceGrid" id="localSportGrid" style="margin-bottom:10px">
+      <button class="choice sel" data-sp="ALL"><span class="e">🌍</span>All</button>
+      <button class="choice" data-sp="NFL"><span class="e">🏈</span>NFL</button>
+      <button class="choice" data-sp="NBA"><span class="e">🏀</span>NBA</button>
+      <button class="choice" data-sp="MLB"><span class="e">⚾</span>MLB</button>
+      <button class="choice" data-sp="NHL"><span class="e">🏒</span>NHL</button>
+      <button class="choice" data-sp="GOLF"><span class="e">⛳</span>Golf</button>
+      <button class="choice" data-sp="TEN"><span class="e">🎾</span>Tennis</button>
+      <button class="choice" data-sp="CBB"><span class="e">🏀</span>NCAA BB</button>
+      <button class="choice" data-sp="CFB"><span class="e">🏈</span>NCAA FB</button>
+    </div>
+    <div class="lbl">Rounds</div>
+    <div class="choiceGrid two" id="localRoundGrid" style="margin-bottom:10px">
+      <button class="choice sel" data-rd="3"><span class="e">⚡</span>Quick · 3</button>
+      <button class="choice" data-rd="6"><span class="e">🏆</span>Full · 6</button>
+    </div>
+    <div class="lbl">Who's playing? (you're in)</div>
+    <div id="localSeats"></div>
+    <div class="addRow">
+      <input id="localName" placeholder="Friend's name" maxlength="14" />
+      <button class="mini green" id="localAdd">Add</button>
+      <button class="mini" id="localBot">🤖 Bot</button>
+    </div>
+    <button class="big gold" id="localStart" style="margin-top:10px">Start drafting</button>
+    <button class="big flat" id="localCancel" style="margin-top:8px">Cancel</button>
+  </div>
+</div>
+
+<!-- profile / onboarding modal -->
+<div class="modal" id="profModal">
+  <div class="sheet">
+    <h2 id="profTitle">Welcome! Set up your player</h2>
+    <div class="lbl">Username</div>
+    <input class="field" id="profName" maxlength="14" placeholder="Your name" />
+    <div class="lbl">Pick your look</div>
+    <div class="avGrid" id="avGrid"></div>
+    <div class="lbl">…or paste an image link</div>
+    <input class="field" id="profImg" placeholder="https://…" />
+    <button class="big" id="profSave">Let's go</button>
+  </div>
+</div>
+
+<!-- invite-friends modal -->
+<div class="modal" id="invModal">
+  <div class="sheet">
+    <h2>Invite friends</h2>
+    <div id="invList"></div>
+    <button class="big flat" id="invClose" style="margin-top:8px">Done</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="players-data.js"></script>
+<script>
+// ================= helpers =================
+const $ = (id) => document.getElementById(id);
+const show = (id) => { document.querySelectorAll(".screen").forEach((s) => s.classList.remove("on")); $(id).classList.add("on"); };
+const avHtml = (p, cls = "av") => `<span class="${cls}">${p.img ? `<img src="${p.img}" alt="" onerror="this.remove()" />` : (p.av || "🙂")}</span>`;
+const esc = (s) => String(s).replace(/[<>&"]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;" }[c]));
+let toastT;
+function toast(msg) { const t = $("toast"); t.textContent = msg; t.style.display = "block"; clearTimeout(toastT); toastT = setTimeout(() => (t.style.display = "none"), 2200); }
+async function api(path, body) {
+  const r = await fetch(path, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : undefined);
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { toast(j.error || "Something went wrong"); throw new Error(j.error || r.status); }
+  return j;
+}
+const EMOJIS = ["🙂","😎","🤠","👑","🦊","🐻","🦁","🐸","🐼","🦅","🐉","🦈","🔥","⚡","🍀","🎯","🚀","🤖","👻","🥶","😤","🧊","💪","🃏"];
+const SPORTNAMES = { ALL: "All-sports", NFL: "NFL", NBA: "NBA", MLB: "MLB", NHL: "NHL", GOLF: "Golf", TEN: "Tennis", CBB: "NCAA BB", CFB: "NCAA FB" };
+
+// ================= identity =================
+let me = JSON.parse(localStorage.getItem("squp_me") || "null");
+let pendingJoin = new URLSearchParams(location.search).get("join");
+
+const pickerIndex = (s) => {
+  const n = s.seats.length, p = s.picks.length;
+  const r = Math.floor(p / n), i = p % n;
+  return r % 2 === 0 ? i : n - 1 - i;
+};
+const roundOf = (s) => Math.floor(s.picks.length / s.seats.length) + 1;
+
+// ================= profile =================
+function openProfile(first) {
+  $("profTitle").textContent = first ? "Welcome! Set up your player" : "Your profile";
+  $("profName").value = me?.name && me.name !== "Player" ? me.name : "";
+  $("profImg").value = me?.img || "";
+  const cur = me?.av || "🙂";
+  $("avGrid").innerHTML = EMOJIS.map((e) => `<button class="avPick ${cur === e ? "sel" : ""}" data-av="${e}">${e}</button>`).join("");
+  $("profModal").classList.add("on");
+}
+let pickedAv = null;
+$("avGrid").addEventListener("click", (e) => {
+  const a = e.target.getAttribute("data-av");
+  if (!a) return;
+  document.querySelectorAll(".avPick").forEach((x) => x.classList.remove("sel"));
+  e.target.classList.add("sel"); pickedAv = a;
+});
+$("profSave").addEventListener("click", async () => {
+  const name = $("profName").value.trim() || "Player";
+  const av = pickedAv || me?.av || "🙂";
+  const img = $("profImg").value.trim();
+  const u = await api("/api/register", { id: me?.id, name, av, img });
+  me = u; localStorage.setItem("squp_me", JSON.stringify(me));
+  $("profModal").classList.remove("on");
+  renderTop();
+  if (pendingJoin) { const c = pendingJoin; pendingJoin = null; joinByCode(c); }
+  else loadHome();
+});
+$("meChip").addEventListener("click", () => openProfile(false));
+function renderTop() {
+  $("meName").textContent = me?.name || "…";
+  $("meAv").innerHTML = me?.img ? `<img src="${me.img}" alt="" onerror="this.remove()" />` : (me?.av || "🙂");
+}
+
+// ================= tabs + home data =================
+let homeData = null, curTab = "home";
+const TABSCR = { home: "scrHome", drafts: "scrDrafts", live: "scrLive", results: "scrResults", profile: "scrProfile" };
+async function gotoTab(t) {
+  curTab = t;
+  leaveDraft();
+  document.querySelectorAll(".bnav button").forEach((b) => b.classList.toggle("on", b.getAttribute("data-bt") === t));
+  $("bnav").style.display = "flex";
+  show(TABSCR[t]);
+  try { homeData = await api("/api/me/" + me.id); } catch { return; }
+  renderTabs();
+  if (t === "profile") renderProfileTab();
+}
+$("bnav").addEventListener("click", (e) => {
+  const t = e.target.closest("[data-bt]")?.getAttribute("data-bt");
+  if (t) gotoTab(t);
+});
+function loadHome() { gotoTab(curTab in TABSCR ? curTab : "home"); }
+
+function dCardHtml(d, opts = {}) {
+  const st = d.status === "done"
+    ? (d.scoringEnd && Date.now() < d.scoringEnd ? "🔥 Scoring live — tap for matchup" : "Final — tap for results")
+    : d.status === "lobby" ? "In the lobby — waiting to start" : `Live draft · ${esc(d.turn)}'s pick`;
+  return `<div class="dCard" data-join="${d.code}">
+    <div class="avStack">${d.seats.slice(0, 4).map((x) => avHtml(x)).join("")}</div>
+    <div class="info"><div class="nm">${esc(d.name)}</div><div class="st ${d.status !== "done" || (d.scoringEnd && Date.now() < d.scoringEnd) ? "go" : ""}">${st}</div></div>
+    ${opts.close ? `<button class="cardX" data-arch="${d.code}">✕</button>` : ""}
+    ${opts.reopen ? `<button class="cardX" data-unarch="${d.code}" title="Reopen">↩</button>` : `<span style="font-size:18px">▶</span>`}
+  </div>`;
+}
+function localCardHtml(d, i) {
+  const done = d.picks.length >= d.seats.length * d.rounds;
+  return `<div class="dCard" data-local="${i}">
+    <div class="avStack">${d.seats.slice(0, 4).map((x) => avHtml(x)).join("")}</div>
+    <div class="info"><div class="nm">${esc(d.name)} <span class="localTag">PASS & PLAY</span></div>
+    <div class="st">${done ? "Finished" : "In progress — " + esc(d.seats[lpIdx(d)].name) + "'s pick"}</div></div>
+    <span style="font-size:18px">▶</span>
+  </div>`;
+}
+function renderTabs() {
+  const { invites, drafts } = homeData;
+  // lobby tab: invites
+  $("inviteList").innerHTML = invites.map((i) => `
+    <div class="dCard invite" data-join="${i.draft_code}">
+      <span style="font-size:22px">💌</span>
+      <div class="info"><div class="nm">${esc(i.from_name)} invited you!</div><div class="st go">${esc(i.draft_name || "Squabble")} · tap to join</div></div>
+      <span style="font-size:20px">▶</span>
+    </div>`).join("");
+  // drafts tab: lobby + active online, plus local in-progress
+  const mine = drafts.filter((d) => d.status !== "done");
+  const localList = locals().map((d, i) => ({ d, i })).filter((x) => x.d.picks.length < x.d.seats.length * x.d.rounds);
+  $("draftList").innerHTML =
+    (mine.map((d) => dCardHtml(d)).join("") + localList.map((x) => localCardHtml(x.d, x.i)).join("")) ||
+    `<div class="emptyBox"><div class="e">🐍</div>Nothing going. Start one from the Lobby tab!</div>`;
+  const turnCount = mine.filter((d) => d.status === "active" && d.turn === me.name).length + invites.length;
+  $("bdgDrafts").style.display = turnCount ? "block" : "none";
+  $("bdgDrafts").textContent = turnCount;
+  // live tab: done + inside scoring window
+  const live = drafts.filter((d) => d.status === "done" && !d.archived && d.scoringEnd && Date.now() < d.scoringEnd);
+  $("liveList").innerHTML = live.length ? live.map((d) => dCardHtml(d)).join("")
+    : `<div class="emptyBox"><div class="e">🔴</div>Nothing scoring right now.<br />When a draft finishes, it moves here and your players earn points from their real games for 7 days.</div>`;
+  // results tab: done unarchived (+ closed list), plus finished locals
+  const done = drafts.filter((d) => d.status === "done" && !d.archived);
+  const closed = drafts.filter((d) => d.status === "done" && d.archived);
+  const localDone = locals().map((d, i) => ({ d, i })).filter((x) => x.d.picks.length >= x.d.seats.length * x.d.rounds);
+  $("resultsList").innerHTML = (done.map((d) => dCardHtml(d, { close: true })).join("") + localDone.map((x) => localCardHtml(x.d, x.i)).join("")) ||
+    `<div class="emptyBox"><div class="e">🏆</div>No finished drafts yet.</div>`;
+  $("closedLbl").style.display = closed.length ? "block" : "none";
+  $("closedList").innerHTML = closed.map((d) => dCardHtml(d, { reopen: true })).join("");
+}
+function renderProfileTab() {
+  $("profNameBig").textContent = me.name;
+  $("profAvBig").innerHTML = me.img ? `<img src="${me.img}" alt="" onerror="this.remove()" />` : me.av;
+  $("myCode").textContent = me.friendcode;
+  $("friendErr").textContent = "";
+  $("friendsList").innerHTML = homeData.friends.length
+    ? homeData.friends.map((f) => `<div class="fRow">${avHtml(f)}<span class="fn">${esc(f.name)}</span><span class="tag">${f.friendcode}</span></div>`).join("")
+    : `<div class="emptyBox"><div class="e">👥</div>No friends yet.<br />Swap codes and build the crew.</div>`;
+}
+$("editProfile").addEventListener("click", () => openProfile(false));
+document.body.addEventListener("click", async (e) => {
+  const arch = e.target.getAttribute("data-arch");
+  if (arch) { await api(`/api/draft/${arch}/archive`, { userId: me.id }); gotoTab("results"); return; }
+  const un = e.target.getAttribute("data-unarch");
+  if (un) { await api(`/api/draft/${un}/archive`, { userId: me.id, undo: true }); gotoTab("results"); return; }
+  const li = e.target.closest("[data-local]")?.getAttribute("data-local");
+  if (li !== null && li !== undefined) { openLocal(+li); return; }
+});
+$("joinCodeBtn").addEventListener("click", () => {
+  const c = $("joinCodeIn").value.trim();
+  if (c.length === 6) { $("joinCodeIn").value = ""; joinByCode(c); }
+});
+// ================= friends (profile tab) =================
+$("shareCode").addEventListener("click", () => shareText(`Add me on SquabbleUP! My friend code is ${me.friendcode} → ${location.origin}`));
+$("addFriendBtn").addEventListener("click", async () => {
+  const code = $("codeIn").value.trim().toUpperCase();
+  if (!code) return;
+  try {
+    const f = await api("/api/friends/add", { id: me.id, code });
+    $("codeIn").value = ""; toast(`${f.name} added! 🎉`); gotoTab("profile");
+  } catch (e) { $("friendErr").textContent = e.message; }
+});
+// ================= share =================
+async function shareText(text, url) {
+  if (navigator.share) { try { await navigator.share(url ? { text, url } : { text }); return; } catch {} }
+  try { await navigator.clipboard.writeText(url ? `${text} ${url}` : text); toast("Copied — paste it anywhere!"); }
+  catch { toast(text); }
+}
+
+// ================= wizard =================
+let wizSport = "ALL", wizRounds = 3;
+$("sportGrid").addEventListener("click", (e) => {
+  const b = e.target.closest(".choice"); if (!b) return;
+  document.querySelectorAll("#sportGrid .choice").forEach((c) => c.classList.remove("sel"));
+  b.classList.add("sel"); wizSport = b.getAttribute("data-sp");
+});
+$("roundGrid").addEventListener("click", (e) => {
+  const b = e.target.closest(".choice"); if (!b) return;
+  document.querySelectorAll("#roundGrid .choice").forEach((c) => c.classList.remove("sel"));
+  b.classList.add("sel"); wizRounds = +b.getAttribute("data-rd");
+});
+$("createDraft").addEventListener("click", async () => {
+  const { code } = await api("/api/draft/create", {
+    hostId: me.id, sport: wizSport, rounds: wizRounds,
+    name: SPORTNAMES[wizSport] + " squabble",
+  });
+  joinByCode(code);
+});
+
+// ================= draft connection =================
+let draft = null, ws = null, pollT = null, posFilter = "All", q = "", activeTab = "pick", unreadChat = false, lastChatLen = 0;
+
+async function joinByCode(code) {
+  code = code.toUpperCase();
+  try { draft = await api(`/api/draft/${code}/join`, { userId: me.id }); }
+  catch { return; }
+  history.replaceState(null, "", "/");
+  connect(code);
+  routeDraft();
+}
+function connect(code) {
+  leaveDraft();
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  try {
+    ws = new WebSocket(`${proto}://${location.host}/ws?draft=${code}`);
+    ws.onmessage = (e) => {
+      const m = JSON.parse(e.data);
+      if (m.type === "state") { draft = m.state; routeDraft(); }
+    };
+  } catch {}
+  pollT = setInterval(async () => {
+    if (ws && ws.readyState === 1) return; // ws healthy
+    try { draft = await api("/api/draft/" + code); routeDraft(); } catch {}
+  }, 3500);
+}
+function leaveDraft() { if (ws) { try { ws.close(); } catch {} ws = null; } if (pollT) { clearInterval(pollT); pollT = null; } }
+
+function routeDraft() {
+  if (!draft) return;
+  $("bnav").style.display = "none";
+  if (draft.status === "lobby") renderLobby();
+  else if (draft.status === "active") renderRoom();
+  else renderDone();
+  if (!draft.local) renderChats();
+}
+
+// ================= lobby =================
+function renderLobby() {
+  if (!$("scrLobby").classList.contains("on")) show("scrLobby");
+  const isHost = draft.hostId === me.id;
+  $("lobbyTitle").textContent = draft.name;
+  $("roomCode").textContent = draft.code;
+  $("seatCount").textContent = `· ${draft.seats.length}/8`;
+  $("lobbySeats").innerHTML = draft.seats.map((s, i) => `
+    <div class="fRow">${avHtml(s)}<span class="fn">${esc(s.name)}</span>
+      ${s.userId === draft.hostId ? '<span class="tag host">HOST</span>' : ""}
+      ${s.userId === me.id ? '<span class="tag">YOU</span>' : ""}
+      ${isHost && s.userId !== draft.hostId ? `<button class="rm" data-kick="${i}">✕</button>` : ""}
+    </div>`).join("");
+  $("hostTools").style.display = isHost ? "block" : "none";
+  $("lobbyNote").textContent = isHost
+    ? (draft.seats.length < 2 ? "Invite a friend or add a bot, then start." : "Everyone in? Hit start.")
+    : "Waiting for the host to start…";
+  $("startBtn").disabled = draft.seats.length < 2;
+}
+$("lobbySeats").addEventListener("click", async (e) => {
+  const k = e.target.getAttribute("data-kick");
+  if (k !== null) await api(`/api/draft/${draft.code}/removeseat`, { hostId: me.id, seat: +k });
+});
+$("shareDraft").addEventListener("click", () =>
+  shareText(`Draft against me on SquabbleUP! Room code ${draft.code} —`, `${location.origin}/?join=${draft.code}`));
+$("lobbyAddBot").addEventListener("click", () => api(`/api/draft/${draft.code}/addbot`, { hostId: me.id }));
+$("lobbyShuffle").addEventListener("click", () => api(`/api/draft/${draft.code}/shuffle`, { hostId: me.id }));
+$("startBtn").addEventListener("click", () => api(`/api/draft/${draft.code}/start`, { hostId: me.id }));
+
+// invite friends modal
+$("lobbyInviteFriends").addEventListener("click", async () => {
+  const meData = await api("/api/me/" + me.id);
+  const inRoom = new Set(draft.seats.map((s) => s.userId));
+  $("invList").innerHTML = meData.friends.length
+    ? meData.friends.map((f) => `<div class="fRow">${avHtml(f)}<span class="fn">${esc(f.name)}</span>
+        ${inRoom.has(f.id) ? '<span class="tag">IN ROOM</span>' : `<button class="mini green" data-inv="${f.id}">Invite</button>`}</div>`).join("")
+    : `<div class="emptyBox"><div class="e">👥</div>No friends added yet.<br />Use the share link instead — works for anyone!</div>`;
+  $("invModal").classList.add("on");
+});
+$("invList").addEventListener("click", async (e) => {
+  const id = e.target.getAttribute("data-inv");
+  if (!id) return;
+  await api(`/api/draft/${draft.code}/invite`, { fromId: me.id, toUserId: id });
+  e.target.outerHTML = '<span class="tag">INVITED ✓</span>';
+});
+$("invClose").addEventListener("click", () => $("invModal").classList.remove("on"));
+
+// ================= draft room =================
+function availPlayers() {
+  const taken = new Set(draft.picks.map((p) => p.player));
+  return PLAYERS
+    .filter((p) => !taken.has(p.n))
+    .filter((p) => draft.sport === "ALL" || p.sp === draft.sport)
+    .filter((p) => posFilter === "All" || p.pos === posFilter)
+    .filter((p) => p.n.toLowerCase().includes(q))
+    .sort((a, b) => a.r - b.r);
+}
+function renderRoom() {
+  if (!$("scrRoom").classList.contains("on")) { show("scrRoom"); setTab("pick"); }
+  document.querySelector('[data-tab="chat"]').style.display = draft.local ? "none" : "block";
+  const round = roundOf(draft), turnIdx = pickerIndex(draft);
+  const reversed = (round - 1) % 2 === 1;
+  const t = draft.seats[turnIdx];
+  const myTurn = draft.local ? !t.bot : t.userId === me.id;
+
+  $("railRow").innerHTML = draft.seats.map((s, i) =>
+    `<div class="railSeat ${i === turnIdx ? "now" : ""}">${avHtml(s)}<span class="rn">${esc(s.name)}</span></div>`).join("");
+  $("railLbl").textContent = `Round ${round} of ${draft.rounds} · ${reversed ? "← snaking back" : "picking this way →"}`;
+  $("snakeIcon").classList.toggle("flip", reversed);
+
+  $("turnBanner").className = "turnBanner" + (myTurn ? "" : " waiting");
+  $("turnBanner").textContent = draft.local
+    ? (t.bot ? `${t.name} is thinking…` : `📱 Pass the phone — ${t.name} picks!`)
+    : (myTurn ? "Your pick! 🔥" : t.bot ? `${t.name} is thinking…` : `${t.name} is on the clock…`);
+
+  const poses = ["All", ...new Set(PLAYERS.filter((p) => draft.sport === "ALL" || p.sp === draft.sport).map((p) => p.pos))];
+  $("posFilters").innerHTML = poses.map((p) => `<button class="fchip ${posFilter === p ? "on" : ""}" data-pos="${p}">${p}</button>`).join("");
+
+  $("pool").innerHTML = availPlayers().slice(0, 40).map((p) => `
+    <div class="pRow">
+      <div class="pi"><div class="pn">${esc(p.n)}</div><div class="pd"><span class="spTag">${p.sp}</span>${p.pos} · ${p.tm}</div></div>
+      ${myTurn ? `<button class="draftBtn" data-pick="${esc(p.n)}">Draft</button>` : ""}
+    </div>`).join("");
+  if (activeTab === "board") $("tabBoard").innerHTML = draft.seats.map(rosterHtml).join("");
+}
+$("posFilters").addEventListener("click", (e) => { const p = e.target.getAttribute("data-pos"); if (p) { posFilter = p; renderRoom(); } });
+$("pSearch").addEventListener("input", (e) => { q = e.target.value.toLowerCase(); renderRoom(); });
+$("pool").addEventListener("click", async (e) => {
+  const name = e.target.getAttribute("data-pick");
+  if (!name) return;
+  e.target.disabled = true;
+  if (draft.local) { localPick(name); return; }
+  try { draft = await api(`/api/draft/${draft.code}/pick`, { userId: me.id, player: name }); routeDraft(); } catch {}
+});
+
+// tabs
+function setTab(t) {
+  activeTab = t;
+  document.querySelectorAll(".tab").forEach((x) => x.classList.toggle("on", x.getAttribute("data-tab") === t));
+  $("tabPick").style.display = t === "pick" ? "block" : "none";
+  $("tabBoard").style.display = t === "board" ? "block" : "none";
+  $("tabChat").style.display = t === "chat" ? "block" : "none";
+  $("tabMatchup").style.display = t === "matchup" ? "block" : "none";
+  if (t === "board") $("tabBoard").innerHTML = draft.seats.map(rosterHtml).join("");
+  if (t === "chat") { unreadChat = false; $("chatDot").style.display = "none"; scrollChat("roomChat"); }
+  if (t === "matchup") { fetchScores().then(() => renderMatchup("tabMatchup")); }
+}
+document.querySelector(".tabs").addEventListener("click", (e) => { const t = e.target.closest(".tab")?.getAttribute("data-tab"); if (t) setTab(t); });
+
+// ================= chat =================
+function chatHtml(arr) {
+  return arr.length ? arr.map((m) => `
+    <div class="cMsg ${m.name === me.name ? "mine" : ""}">${avHtml(m)}
+      <div><div class="who">${esc(m.name)}</div><div class="bub">${esc(m.text)}</div></div>
+    </div>`).join("") : `<div class="chatEmpty">No messages yet — say hi 👋</div>`;
+}
+function scrollChat(id) { const el = $(id); el.scrollTop = el.scrollHeight; }
+function renderChats() {
+  if (!draft) return;
+  for (const id of ["lobbyChat", "roomChat", "doneChat"]) { $(id).innerHTML = chatHtml(draft.chat); scrollChat(id); }
+  if (draft.chat.length > lastChatLen && activeTab !== "chat" && draft.status === "active") {
+    unreadChat = true; $("chatDot").style.display = "inline-block";
+  }
+  lastChatLen = draft.chat.length;
+}
+async function sendChat(inputId) {
+  const el = $(inputId);
+  const text = el.value.trim();
+  if (!text) return;
+  el.value = "";
+  await api(`/api/draft/${draft.code}/chat`, { userId: me.id, text });
+}
+for (const [btn, inp] of [["lobbyChatSend", "lobbyChatIn"], ["roomChatSend", "roomChatIn"], ["doneChatSend", "doneChatIn"]]) {
+  $(btn).addEventListener("click", () => sendChat(inp));
+  $(inp).addEventListener("keydown", (e) => { if (e.key === "Enter") sendChat(inp); });
+}
+
+// ================= matchup / scoring =================
+let scoresCache = {}, scoresDetail = {}, scoresT = null;
+async function fetchScores() {
+  if (!draft || draft.local) return;
+  try {
+    scoresCache = await api(`/api/draft/${draft.code}/scores`);
+    scoresDetail = await api(`/api/draft/${draft.code}/scores/detail`);
+  } catch { scoresCache = {}; scoresDetail = {}; }
+}
+function seatTotals() {
+  return draft.seats.map((s, i) => ({
+    seat: s, i,
+    pts: s.roster.reduce((a, p) => a + (scoresCache[p.n]?.pts || 0), 0),
+  })).sort((a, b) => b.pts - a.pts);
+}
+function renderMatchup(targetId) {
+  const rows = seatTotals();
+  $(targetId).innerHTML = rows.map((r, rank) => `
+    <div class="muRow ${rank === 0 && r.pts > 0 ? "first" : ""}" data-mu="${r.i}">
+      <span class="rank">${rank === 0 && r.pts > 0 ? "👑" : "#" + (rank + 1)}</span>
+      ${avHtml(r.seat)}<span class="who">${esc(r.seat.name)}${r.seat.userId === me.id ? " (you)" : ""}</span>
+      <span class="pts">${r.pts.toFixed(1)}</span>
+    </div>
+    <div class="muDetail" id="mu${r.i}">
+      ${r.seat.roster.map((p) => {
+        const sc = scoresCache[p.n];
+        const days = scoresDetail[p.n] || [];
+        const log = days.map((d) => `<div class="muP" style="opacity:.8"><span class="nm2" style="font-weight:600;color:var(--dim)">↳ ${d.day.slice(5)}</span><span class="ln">${esc(d.line)}</span><span class="pp" style="color:var(--dim)">${d.pts.toFixed(1)}</span></div>`).join("");
+        return `<div class="muP"><span class="nm2">${esc(p.n)}</span><span class="ln">${sc ? esc(sc.line) : "no games yet"}</span><span class="pp">${(sc?.pts || 0).toFixed(1)}</span></div>${log}`;
+      }).join("") || '<div class="muP"><span class="ln">No picks yet</span></div>'}
+    </div>`).join("") +
+    `<div class="scoreNote">Standard fantasy scoring per sport · same stats source for everyone · updates every few minutes${draft.scoring ? ` · scoring window ends ${new Date(draft.scoring.end).toLocaleDateString()}` : ""}</div>`;
+  $(targetId).onclick = (e) => {
+    const i = e.target.closest("[data-mu]")?.getAttribute("data-mu");
+    if (i !== null && i !== undefined) $("mu" + i).classList.toggle("open");
+  };
+}
+
+// ================= results =================
+function rosterHtml(s) {
+  return `<div class="bCol">
+    <div class="bColHead">${avHtml(s)}${esc(s.name)}${s.userId === me.id ? ' <span style="color:var(--green);font-size:12px">YOU</span>' : ""}</div>
+    ${s.roster.length ? s.roster.map((p, i) =>
+      `<div class="bPick"><span class="rd">R${i + 1}</span><span>${esc(p.n)}</span><span class="e">· ${p.sp} ${p.pos}</span></div>`).join("")
+      : '<div class="bPick"><span class="e">No picks yet</span></div>'}
+  </div>`;
+}
+function renderDone() {
+  if (!$("scrDone").classList.contains("on")) show("scrDone");
+  const scoringLive = draft.scoring && Date.now() < draft.scoring.end;
+  $("doneTitle").textContent = scoringLive ? "Matchup 🔥" : "Final results 🏁";
+  $("doneSub").textContent = `${draft.name} · ${draft.seats.length} drafters · ${draft.rounds} rounds`;
+  $("doneScoreNote").textContent = "";
+  fetchScores().then(() => renderMatchup("doneStandings"));
+  if (scoresT) clearInterval(scoresT);
+  if (scoringLive && !draft.local) scoresT = setInterval(async () => {
+    if (!$("scrDone").classList.contains("on")) { clearInterval(scoresT); return; }
+    await fetchScores(); renderMatchup("doneStandings");
+  }, 60000);
+}
+
+// ================= pass & play (local) =================
+const lpIdx = (d) => { const n = d.seats.length, p = d.picks.length, r = Math.floor(p / n), i = p % n; return r % 2 === 0 ? i : n - 1 - i; };
+function locals() { return JSON.parse(localStorage.getItem("squp_local") || "[]"); }
+function saveLocals(arr) { localStorage.setItem("squp_local", JSON.stringify(arr)); }
+
+let lWiz = null;
+$("newLocal").addEventListener("click", () => {
+  lWiz = { sport: "ALL", rounds: 3, seats: [{ name: me.name, av: me.av, img: me.img, bot: false, roster: [] }] };
+  document.querySelectorAll("#localSportGrid .choice").forEach((c, i) => c.classList.toggle("sel", i === 0));
+  document.querySelectorAll("#localRoundGrid .choice").forEach((c, i) => c.classList.toggle("sel", i === 0));
+  renderLocalSeats();
+  $("localModal").classList.add("on");
+});
+function renderLocalSeats() {
+  $("localSeats").innerHTML = lWiz.seats.map((x, i) => `
+    <div class="fRow">${avHtml(x)}<span class="fn">${esc(x.name)}</span>
+    ${i === 0 ? '<span class="tag">YOU</span>' : `<button class="rm" data-lrm="${i}">✕</button>`}</div>`).join("");
+}
+$("localSeats").addEventListener("click", (e) => {
+  const i = e.target.getAttribute("data-lrm");
+  if (i !== null) { lWiz.seats.splice(+i, 1); renderLocalSeats(); }
+});
+$("localSportGrid").addEventListener("click", (e) => {
+  const b = e.target.closest(".choice"); if (!b) return;
+  document.querySelectorAll("#localSportGrid .choice").forEach((c) => c.classList.remove("sel"));
+  b.classList.add("sel"); lWiz.sport = b.getAttribute("data-sp");
+});
+$("localRoundGrid").addEventListener("click", (e) => {
+  const b = e.target.closest(".choice"); if (!b) return;
+  document.querySelectorAll("#localRoundGrid .choice").forEach((c) => c.classList.remove("sel"));
+  b.classList.add("sel"); lWiz.rounds = +b.getAttribute("data-rd");
+});
+function lAddSeat(name, bot) {
+  if (lWiz.seats.length >= 8) return;
+  const used = lWiz.seats.map((x) => x.av);
+  lWiz.seats.push({ name, av: EMOJIS.find((e) => !used.includes(e)) || "🙂", img: "", bot, roster: [] });
+  renderLocalSeats();
+}
+$("localAdd").addEventListener("click", () => { const n = $("localName").value.trim(); if (n) { lAddSeat(n, false); $("localName").value = ""; } });
+$("localName").addEventListener("keydown", (e) => { if (e.key === "Enter") $("localAdd").click(); });
+$("localBot").addEventListener("click", () => {
+  const used = lWiz.seats.map((x) => x.name);
+  lAddSeat(["RoboRick","DraftDroid","SnakeBot","AutoAndy","ChipChip","BeepBoop"].find((b) => !used.includes(b)) || "Bot", true);
+});
+$("localCancel").addEventListener("click", () => $("localModal").classList.remove("on"));
+$("localStart").addEventListener("click", () => {
+  if (lWiz.seats.length < 2) { toast("Add at least one friend or bot"); return; }
+  const d = {
+    local: true, name: SPORTNAMES[lWiz.sport] + " squabble", sport: lWiz.sport, rounds: lWiz.rounds,
+    status: "active", seats: lWiz.seats, picks: [], chat: [], code: "LOCAL",
+  };
+  const arr = locals(); arr.unshift(d); saveLocals(arr);
+  $("localModal").classList.remove("on");
+  openLocal(0);
+});
+let localIdx = null;
+function openLocal(i) {
+  localIdx = i;
+  draft = locals()[i];
+  leaveDraft();
+  routeDraft();
+  localBotLoop();
+}
+function persistLocal() { const arr = locals(); arr[localIdx] = draft; saveLocals(arr); }
+function localPick(name) {
+  const p = PLAYERS.find((x) => x.n === name); if (!p) return;
+  const idx = lpIdx(draft);
+  draft.picks.push({ seat: idx, player: p.n, pos: p.pos, sp: p.sp, tm: p.tm });
+  draft.seats[idx].roster.push({ n: p.n, pos: p.pos, sp: p.sp, tm: p.tm });
+  if (draft.picks.length >= draft.seats.length * draft.rounds) draft.status = "done";
+  persistLocal(); routeDraft(); localBotLoop();
+}
+function localBotLoop() {
+  if (!draft?.local || draft.status !== "active") return;
+  const t = draft.seats[lpIdx(draft)];
+  if (!t.bot) return;
+  setTimeout(() => {
+    if (!draft?.local || draft.status !== "active") return;
+    const cur = draft.seats[lpIdx(draft)];
+    if (!cur.bot) return;
+    const taken = new Set(draft.picks.map((p) => p.player));
+    const avail = PLAYERS.filter((p) => !taken.has(p.n)).filter((p) => draft.sport === "ALL" || p.sp === draft.sport).sort((a, b) => a.r - b.r).slice(0, 3);
+    const pick = avail[Math.floor(Math.random() * avail.length)];
+    if (pick) localPick(pick.n);
+  }, 1100);
+}
+
+// ================= boot =================
+renderTop();
+if (!me) openProfile(true);
+else if (pendingJoin) { const c = pendingJoin; pendingJoin = null; joinByCode(c); }
+else loadHome();
+</script>
+</body>
+</html>
