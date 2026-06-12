@@ -117,7 +117,7 @@ async function todaysTeams(sport) {
         if (abbr) teams.add(abbr.toUpperCase());
       }
     }
-    return teams;
+    return teams.size > 0 ? teams : null;
   } catch { return null; }
 }
 
