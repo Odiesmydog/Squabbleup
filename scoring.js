@@ -141,7 +141,7 @@ async function pollGolfDay(pool, dayDate) {
       if (!poolName) continue;
       const pos = parseInt(String(c.status?.position?.id || c.order || "0").replace(/\D/g, "")) || 0;
       const final = ev.status?.type?.completed;
-      const pts = final ? golfPoints(pos) : 0; // golf pays out at tournament completion
+      const pts = golfPoints(pos); // award live position points, update when final
       const line = pos ? `position ${pos}${final ? " (final)" : " (live)"}` : "";
       await upsertScore(pool, dayDate, "GOLF", poolName, pts, line);
     }

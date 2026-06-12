@@ -309,6 +309,20 @@ app.get("/api/stats/debug", ah(async (req, res) => {
   res.json({ rows: +count, recent, pollTriggered: true });
 }));
 
+// debug: show raw ESPN scoreboard events for a sport (e.g. /api/stats/espn/MLB)
+app.get("/api/stats/espn/:sport", ah(async (req, res) => {
+  const sport = req.params.sport.toUpperCase();
+  const LEAGUES = { NFL: ["football","nfl"], CFB: ["football","college-football"], NBA: ["basketball","nba"], CBB: ["basketball","mens-college-basketball"], MLB: ["baseball","mlb"], NHL: ["hockey","nhl"] };
+  const pair = LEAGUES[sport];
+  if (!pair) return res.status(400).json({ error: "Unknown sport" });
+  const today = new Date().toISOString().slice(0,10).replace(/-/g,"");
+  const url = `https://site.api.espn.com/apis/site/v2/sports/${pair[0]}/${pair[1]}/scoreboard?dates=${today}`;
+  const r = await fetch(url);
+  const data = await r.json();
+  const events = (data.events || []).map(e => ({ id: e.id, name: e.name, state: e.status?.type?.state, detail: e.status?.type?.detail }));
+  res.json({ url, eventCount: events.length, events });
+}));
+
 // live scores for a draft (window-summed per player)
 app.get("/api/draft/:code/scores", ah(async (req, res) => {
   const r = await pool.query("SELECT state FROM drafts WHERE code=$1", [req.params.code.toUpperCase()]);
