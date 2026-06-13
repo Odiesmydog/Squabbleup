@@ -162,7 +162,8 @@ app.get("/api/me/:id", ah(async (req, res) => {
       rounds: d.state.rounds, seats: d.state.seats.map((s) => ({ name: s.name, av: s.av, img: s.img })),
       turn: d.state.status === "active" ? d.state.seats[pickerIndex(d.state)].name : null,
       archived: (d.state.archivedBy || []).includes(id),
-      scoringEnd: d.state.scoring ? d.state.scoring.end : null }));
+      scoringEnd: d.state.scoring ? d.state.scoring.end : null,
+      handshake: d.state.handshake ? { stake: d.state.handshake.stake } : null }));
   res.json({ user: u, friends, invites, drafts });
 }));
 

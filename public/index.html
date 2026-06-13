@@ -647,7 +647,7 @@ function dCardHtml(d, opts = {}) {
   return `<div class="dCard">
     <div class="dCardClick" data-join="${d.code}">
       <div class="avStack">${d.seats.slice(0, 4).map((x) => avHtml(x)).join("")}</div>
-      <div class="info"><div class="nm">${esc(d.name)}</div><div class="st ${d.status !== "done" || (d.scoringEnd && Date.now() < d.scoringEnd) ? "go" : ""}">${st}</div></div>
+      <div class="info"><div class="nm">${esc(d.name)}</div><div class="st ${d.status !== "done" || (d.scoringEnd && Date.now() < d.scoringEnd) ? "go" : ""}">${st}</div>${d.handshake ? `<div class="st" style="color:var(--gold);margin-top:2px">🤝 ${esc(d.handshake.stake)}</div>` : ""}</div>
       ${!action ? `<span style="font-size:18px;color:var(--dim)">▶</span>` : ""}
     </div>
     ${action}
