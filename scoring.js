@@ -358,4 +358,140 @@ async function seedDemo(pool) {
   console.log("DEMO stats seeded (today + yesterday). Unset DEMO_STATS for real data only.");
 }
 
-module.exports = { pollAll, draftScores, draftScoreDetail, projectedScores, seedDemo, scoreSummary, todaysTeams, todaysPoolPlayers, todaysSchedule, nextGameDay, RULES, FAMILY, golfPoints, matchPool, buildPoolIndex, norm };
+// ─── Sleeper API integration ─────────────────────────────────────────────────
+const SLEEPER_SPORT = { NBA: "nba", NFL: "nfl" };
+
+// Sleeper stat keys → our RULES keys
+const SLEEPER_STAT_MAP = {
+  basketball: [
+    ["pts", "*:PTS"], ["reb", "*:REB"], ["ast", "*:AST"],
+    ["stl", "*:STL"], ["blk", "*:BLK"], ["to", "*:TO"],
+  ],
+  football: [
+    ["pass_yd", "passing:YDS"], ["pass_td", "passing:TD"], ["pass_int", "passing:INT"],
+    ["rush_yd", "rushing:YDS"], ["rush_td", "rushing:TD"],
+    ["rec", "receiving:REC"], ["rec_yd", "receiving:YDS"], ["rec_td", "receiving:TD"],
+    ["fum_lost", "fumbles:LOST"],
+  ],
+};
+
+function sleeperPts(stats, family) {
+  let pts = 0;
+  for (const [sk, rk] of (SLEEPER_STAT_MAP[family] || [])) {
+    const val = parseFloat(stats[sk] ?? stats[sk + "_ppr"] ?? 0) || 0;
+    const mult = RULES[family]?.[rk];
+    if (mult !== undefined && val) pts += val * mult;
+  }
+  return Math.round(pts * 10) / 10;
+}
+
+// 1-hour in-memory cache for player roster data
+let _slPlayerCache = {}, _slPlayerCacheT = {};
+async function sleeperPlayerMap(sport) {
+  const ss = SLEEPER_SPORT[sport];
+  if (!ss) return null;
+  const now = Date.now();
+  if (_slPlayerCache[sport] && now - _slPlayerCacheT[sport] < 3_600_000) return _slPlayerCache[sport];
+  try {
+    const raw = await jget(`https://api.sleeper.app/v1/players/${ss}`);
+    const map = new Map(); // norm(fullName) → { id, status, thumb }
+    for (const [id, p] of Object.entries(raw || {})) {
+      if (!p.full_name) continue;
+      map.set(norm(p.full_name), {
+        id,
+        status: p.injury_status || null,  // "Q" | "D" | "O" | "IR" | null
+        thumb: `https://sleepercdn.com/content/${ss}/players/thumb/${id}.jpg`,
+      });
+    }
+    _slPlayerCache[sport] = map;
+    _slPlayerCacheT[sport] = now;
+    return map;
+  } catch { return null; }
+}
+
+// Estimate current Sleeper season + week for NBA/NFL
+function sleeperWeek(sport) {
+  const now = new Date();
+  const m = now.getMonth() + 1, y = now.getFullYear();
+  if (sport === "NBA") {
+    const season = m >= 10 ? y : y - 1;
+    if (m >= 4 && m <= 6) { // playoffs
+      const w = Math.max(1, Math.ceil((now - new Date(y, 3, 12)) / 604_800_000));
+      return { type: "post", season, week: w };
+    }
+    const w = Math.max(1, Math.ceil((now - new Date(season, 9, 1)) / 604_800_000));
+    return { type: "regular", season, week: Math.min(w, 26) };
+  }
+  if (sport === "NFL") {
+    const season = m >= 8 ? y : y - 1;
+    if (m <= 2 && season < y) { // playoffs Jan-Feb
+      const w = Math.max(1, Math.ceil((now - new Date(y, 0, 8)) / 604_800_000));
+      return { type: "post", season, week: Math.min(w, 4) };
+    }
+    const w = Math.max(1, Math.ceil((now - new Date(season, 8, 5)) / 604_800_000));
+    return { type: "regular", season, week: Math.min(w, 18) };
+  }
+  return null;
+}
+
+// 30-min cache for projections
+let _slProjCache = {}, _slProjCacheT = {};
+async function sleeperProjectionMap(sport) {
+  const ss = SLEEPER_SPORT[sport];
+  const family = FAMILY[sport];
+  if (!ss || !family) return null;
+  const now = Date.now();
+  if (_slProjCache[sport] && now - _slProjCacheT[sport] < 1_800_000) return _slProjCache[sport];
+  const wk = sleeperWeek(sport);
+  if (!wk) return null;
+  for (const w of [wk.week, wk.week - 1]) {
+    if (w < 1) continue;
+    try {
+      const data = await jget(`https://api.sleeper.app/v1/projections/${ss}/${wk.type}/${wk.season}/${w}`);
+      if (data && Object.keys(data).length > 50) {
+        _slProjCache[sport] = { data, family };
+        _slProjCacheT[sport] = now;
+        return _slProjCache[sport];
+      }
+    } catch {}
+  }
+  return null;
+}
+
+// Main export: returns { proj: {name→{pts,source}}, status: {name→{status,thumb}} }
+async function sleeperEnrich(sport, playerNames) {
+  const [playerMap, projResult] = await Promise.all([
+    sleeperPlayerMap(sport).catch(() => null),
+    sleeperProjectionMap(sport).catch(() => null),
+  ]);
+  const result = { proj: {}, status: {} };
+  if (!playerMap) return result;
+
+  // Match our pool names → Sleeper entries
+  const poolToSleeper = new Map();
+  for (const pname of playerNames) {
+    const entry = playerMap.get(norm(pname));
+    if (entry) poolToSleeper.set(pname, entry);
+  }
+
+  // Status / thumbnails
+  for (const [pname, entry] of poolToSleeper) {
+    result.status[pname] = { status: entry.status, thumb: entry.thumb };
+  }
+
+  // Projections — build sleeperId → poolName, then score each
+  if (projResult?.data) {
+    const idToName = new Map();
+    for (const [pname, entry] of poolToSleeper) idToName.set(entry.id, pname);
+    for (const [sid, stats] of Object.entries(projResult.data)) {
+      const pname = idToName.get(sid);
+      if (!pname) continue;
+      const pts = sleeperPts(stats, projResult.family);
+      if (pts > 0) result.proj[pname] = { proj: pts, source: "sleeper" };
+    }
+  }
+  return result;
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
+module.exports = { pollAll, draftScores, draftScoreDetail, projectedScores, sleeperEnrich, seedDemo, scoreSummary, todaysTeams, todaysPoolPlayers, todaysSchedule, nextGameDay, RULES, FAMILY, golfPoints, matchPool, buildPoolIndex, norm };

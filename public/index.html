@@ -114,6 +114,13 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
 .pRow .pd { font-size: 12px; color: var(--dim); }
 .spTag { font-family: var(--display); font-size: 10px; font-weight: 600; background: var(--raised); border-radius: 5px; padding: 2px 6px; margin-right: 5px; }
 .projTag { color: var(--green); font-weight: 700; }
+.pThumb { width: 38px; height: 38px; border-radius: 50%; object-fit: cover; flex-shrink: 0; background: var(--raised); }
+.pThumbFb { width: 38px; height: 38px; border-radius: 50%; background: var(--raised); display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 15px; color: var(--dim); flex-shrink: 0; }
+.stBadge { font-size: 10px; font-weight: 800; border-radius: 4px; padding: 1px 5px; margin-left: 6px; vertical-align: middle; }
+.stOut { background: #ff4444; color: #fff; }
+.stQ { background: #f5a623; color: #111; }
+.pRowOut { opacity: 0.45; }
+.outLbl { font-size: 11px; font-weight: 700; color: #ff4444; flex-shrink: 0; }
 .draftBtn { font-family: var(--display); font-weight: 700; font-size: 14.5px; background: var(--green); color: var(--ink); border-radius: 10px; padding: 10px 17px; box-shadow: 0 3px 0 var(--green-d); flex-shrink: 0; }
 .draftBtn:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--green-d); }
 
@@ -684,18 +691,19 @@ $("createDraft").addEventListener("click", async () => {
 
 // ================= draft connection =================
 let draft = null, ws = null, pollT = null, posFilter = "All", q = "", activeTab = "pick", unreadChat = false, lastChatLen = 0;
-let todaysPlayers = null, nextGameDay = null, todayMatchups = {}, draftRoomProj = {};
+let todaysPlayers = null, nextGameDay = null, todayMatchups = {}, draftRoomProj = {}, playerStatus = {};
 async function fetchTodaysTeams(sport) {
   try {
-    const [sched, proj] = await Promise.all([
+    const [sched, enriched] = await Promise.all([
       api(`/api/schedule/${sport}`),
-      api(`/api/projected/${sport}`).catch(() => ({})),
+      api(`/api/projected/${sport}`).catch(() => ({ proj: {}, status: {} })),
     ]);
     todaysPlayers = sched.players ? new Set(sched.players) : null;
     nextGameDay = sched.nextDay || null;
     todayMatchups = sched.matchups || {};
-    draftRoomProj = proj || {};
-  } catch { todaysPlayers = null; nextGameDay = null; todayMatchups = {}; draftRoomProj = {}; }
+    draftRoomProj = enriched.proj || {};
+    playerStatus = enriched.status || {};
+  } catch { todaysPlayers = null; nextGameDay = null; todayMatchups = {}; draftRoomProj = {}; playerStatus = {}; }
 }
 
 async function joinByCode(code) {
@@ -780,6 +788,7 @@ $("invList").addEventListener("click", async (e) => {
 $("invClose").addEventListener("click", () => $("invModal").classList.remove("on"));
 
 // ================= draft room =================
+const OUT_STATUS = new Set(["O", "IR"]);
 function availPlayers() {
   const taken = new Set(draft.picks.map((p) => p.player));
   return PLAYERS
@@ -788,12 +797,16 @@ function availPlayers() {
     .filter((p) => !todaysPlayers || todaysPlayers.has(p.n))
     .filter((p) => posFilter === "All" || p.pos === posFilter)
     .filter((p) => p.n.toLowerCase().includes(q))
-    .sort((a, b) => a.r - b.r);
+    .sort((a, b) => {
+      const aOut = OUT_STATUS.has(playerStatus[a.n]?.status) ? 1 : 0;
+      const bOut = OUT_STATUS.has(playerStatus[b.n]?.status) ? 1 : 0;
+      return aOut !== bOut ? aOut - bOut : a.r - b.r;
+    });
 }
 function renderRoom() {
   if (!$("scrRoom").classList.contains("on")) {
     show("scrRoom"); setTab("pick");
-    todaysPlayers = null; nextGameDay = null; todayMatchups = {}; draftRoomProj = {};
+    todaysPlayers = null; nextGameDay = null; todayMatchups = {}; draftRoomProj = {}; playerStatus = {};
     fetchTodaysTeams(draft.sport).then(() => renderRoom());
   }
   document.querySelector('[data-tab="chat"]').style.display = draft.local ? "none" : "block";
@@ -821,13 +834,18 @@ function renderRoom() {
   const poses = ["All", ...new Set(PLAYERS.filter((p) => draft.sport === "ALL" || p.sp === draft.sport).map((p) => p.pos))];
   $("posFilters").innerHTML = poses.map((p) => `<button class="fchip ${posFilter === p ? "on" : ""}" data-pos="${p}">${p}</button>`).join("");
 
-  $("pool").innerHTML = availPlayers().slice(0, 40).map((p) => {
+  $("pool").innerHTML = availPlayers().slice(0, 50).map((p) => {
     const game = todayMatchups[p.tm] || p.tm;
     const proj = draftRoomProj[p.n];
-    const projStr = proj ? `<span class="projTag">${proj.proj.toFixed(1)} proj</span>` : "";
-    return `<div class="pRow">
-      <div class="pi"><div class="pn">${esc(p.n)}</div><div class="pd"><span class="spTag">${p.sp}</span>${p.pos} · ${game}${projStr ? " · " + projStr : ""}</div></div>
-      ${myTurn ? `<button class="draftBtn" data-pick="${esc(p.n)}">Draft</button>` : ""}
+    const projStr = proj ? `<span class="projTag">${proj.proj.toFixed(1)} proj${proj.source === "sleeper" ? " 🔮" : ""}</span>` : "";
+    const st = playerStatus[p.n];
+    const statusBadge = st?.status ? `<span class="stBadge ${OUT_STATUS.has(st.status) ? "stOut" : "stQ"}">${st.status}</span>` : "";
+    const thumb = st?.thumb ? `<img class="pThumb" src="${st.thumb}" onerror="this.style.display='none'" alt="" />` : `<div class="pThumb pThumbFb">${p.n[0]}</div>`;
+    const isOut = OUT_STATUS.has(st?.status);
+    return `<div class="pRow${isOut ? " pRowOut" : ""}">
+      ${thumb}
+      <div class="pi"><div class="pn">${esc(p.n)}${statusBadge}</div><div class="pd"><span class="spTag">${p.sp}</span>${p.pos} · ${game}${projStr ? " · " + projStr : ""}</div></div>
+      ${myTurn && !isOut ? `<button class="draftBtn" data-pick="${esc(p.n)}">Draft</button>` : (isOut ? `<span class="outLbl">OUT</span>` : "")}
     </div>`;
   }).join("");
   if (activeTab === "board") $("tabBoard").innerHTML = draft.seats.map(rosterHtml).join("");

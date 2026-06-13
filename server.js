@@ -311,13 +311,17 @@ app.get("/api/stats/debug", ah(async (req, res) => {
   res.json({ rows: +count, recent, pollTriggered: true });
 }));
 
-// projected scores for all players in a draft
+// projected scores for players in a finished draft (matchup view)
 app.get("/api/draft/:code/projected", ah(async (req, res) => {
   const r = await pool.query("SELECT state FROM drafts WHERE code=$1", [req.params.code.toUpperCase()]);
   const st = r.rows[0]?.state;
   if (!st) return res.status(404).json({ error: "Draft not found" });
   const players = st.seats.flatMap((s) => s.roster.map((p) => p.n));
-  res.json(await scoring.projectedScores(pool, players));
+  const [db, sleeper] = await Promise.all([
+    scoring.projectedScores(pool, players),
+    scoring.sleeperEnrich(st.sport, players).catch(() => ({ proj: {} })),
+  ]);
+  res.json({ ...db, ...sleeper.proj });
 }));
 
 // teams playing today for a sport — used to filter draft pool
@@ -331,8 +335,14 @@ app.get("/api/schedule/:sport", ah(async (req, res) => {
 app.get("/api/projected/:sport", ah(async (req, res) => {
   const sport = req.params.sport.toUpperCase();
   const sportPlayers = PLAYERS.filter((p) => p.sp === sport).map((p) => p.n);
-  if (!sportPlayers.length) return res.json({});
-  res.json(await scoring.projectedScores(pool, sportPlayers));
+  if (!sportPlayers.length) return res.json({ proj: {}, status: {} });
+  const [dbProj, sleeper] = await Promise.all([
+    scoring.projectedScores(pool, sportPlayers),
+    scoring.sleeperEnrich(sport, sportPlayers).catch(() => ({ proj: {}, status: {} })),
+  ]);
+  // Sleeper projections override rolling average when available
+  const proj = { ...dbProj, ...sleeper.proj };
+  res.json({ proj, status: sleeper.status });
 }));
 
 // debug: show raw ESPN scoreboard events for a sport (e.g. /api/stats/espn/MLB)
