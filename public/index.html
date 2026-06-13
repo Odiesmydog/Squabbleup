@@ -2,9 +2,15 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>SquabbleUP — Snake drafts with your friends</title>
 <meta name="description" content="Live snake drafts with friends across every sport. Share a link, everyone picks from their own phone." />
+<link rel="manifest" href="/manifest.json" />
+<meta name="theme-color" content="#2B2926" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="SquabbleUP" />
+<link rel="apple-touch-icon" href="/icon.svg" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@600;700;800&display=swap" rel="stylesheet" />
@@ -159,6 +165,16 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
 .fab { position: fixed; left: 50%; transform: translateX(-50%); bottom: 16px; width: min(512px, calc(100% - 28px)); z-index: 10; display: flex; gap: 9px; }
 .fab .big { flex: 1; }
 .note { font-size: 12.5px; color: var(--dim); text-align: center; margin-top: 12px; }
+/* handshake mode */
+.hsBox { background: var(--panel); border: 2.5px solid var(--gold); border-radius: var(--r); padding: 14px 16px; margin-bottom: 14px; }
+.hsTitle { font-family: var(--display); font-size: 18px; font-weight: 700; margin-bottom: 8px; color: var(--gold); }
+.hsRoll { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; font-size: 13px; }
+.hsRoll .hsp { background: var(--raised); border-radius: 8px; padding: 4px 10px; }
+.hsRoll .hsp.ok { color: var(--green); }
+.hsRoll .hsp.wait { color: var(--dim); }
+.hsAgreeBtn { display: block; width: 100%; font-family: var(--display); font-size: 20px; font-weight: 700; background: var(--gold); color: #3A2C08; border-radius: 12px; padding: 13px; box-shadow: 0 4px 0 var(--gold-d); text-align: center; }
+.hsAgreeBtn:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--gold-d); }
+.hsAgreeBtn[disabled] { opacity: .55; pointer-events: none; }
 /* bottom nav */
 .bnav { position: fixed; left: 50%; transform: translateX(-50%); bottom: 0; width: min(540px, 100%); background: var(--panel); border-top: 2px solid var(--raised); display: flex; z-index: 20; padding-bottom: env(safe-area-inset-bottom); }
 .bnav button { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 9px 0 7px; color: var(--dim); font-family: var(--display); font-size: 10.5px; font-weight: 600; position: relative; }
@@ -359,6 +375,9 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
       <button class="choice sel" data-rd="3"><span class="e">⚡</span>Quick · 3</button>
       <button class="choice" data-rd="6"><span class="e">🏆</span>Full · 6</button>
     </div>
+    <div class="stepLbl">3 · 🤝 Handshake bet? <span style="color:var(--dim);font-weight:400">(optional)</span></div>
+    <input id="hsStakeIn" maxlength="40" placeholder='e.g. "$10 each" or "winner buys drinks"' style="width:100%;box-sizing:border-box" />
+    <p class="note" style="margin-top:5px">Everyone must shake on it before the draft can start.</p>
     <button class="big gold" id="createDraft" style="margin-top:16px">Create draft room</button>
     <p class="note">You'll get a room code + link to send your friends. Up to 8 drafters.</p>
   </section>
@@ -382,6 +401,14 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
       </div>
     </div>
     <button class="big" id="shareDraft">📤 Invite friends — share link</button>
+    <div id="handshakeBox" style="display:none">
+      <div class="stepLbl" style="margin-top:14px">🤝 Handshake bet</div>
+      <div class="hsBox">
+        <div class="hsTitle" id="hsStakeLabel"></div>
+        <div class="hsRoll" id="hsRoll"></div>
+        <button class="hsAgreeBtn" id="hsAgreeBtn">🤝 Shake on it!</button>
+      </div>
+    </div>
     <div class="stepLbl">In the room <span id="seatCount"></span></div>
     <div id="lobbySeats"></div>
     <div id="hostTools">
@@ -749,10 +776,13 @@ $("roundGrid").addEventListener("click", (e) => {
   b.classList.add("sel"); wizRounds = +b.getAttribute("data-rd");
 });
 $("createDraft").addEventListener("click", async () => {
+  const stake = $("hsStakeIn").value.trim();
   const { code } = await api("/api/draft/create", {
     hostId: me.id, sport: wizSport, rounds: wizRounds,
     name: SPORTNAMES[wizSport] + " squabble",
+    handshake: stake ? { stake, agreed: [] } : null,
   });
+  $("hsStakeIn").value = "";
   joinByCode(code);
 });
 
@@ -823,11 +853,36 @@ function renderLobby() {
     </div>`).join("");
   $("hostTools").style.display = isHost ? "block" : "none";
   $("codeEditBtn").style.display = isHost ? "inline-block" : "none";
+
+  // handshake mode
+  const hs = draft.handshake;
+  $("handshakeBox").style.display = hs ? "block" : "none";
+  let hsBlocking = false;
+  if (hs) {
+    const agreed = hs.agreed || [];
+    const nonBots = draft.seats.filter((s) => !s.bot);
+    const allAgreed = nonBots.every((s) => agreed.includes(s.userId));
+    const myAgreed = agreed.includes(me.id);
+    $("hsStakeLabel").textContent = hs.stake;
+    $("hsRoll").innerHTML = nonBots.map((s) => {
+      const ok = agreed.includes(s.userId);
+      return `<span class="hsp ${ok ? "ok" : "wait"}">${ok ? "🤝" : "⏳"} ${esc(s.name)}</span>`;
+    }).join("");
+    $("hsAgreeBtn").disabled = myAgreed;
+    $("hsAgreeBtn").textContent = myAgreed ? "🤝 You're in!" : "🤝 Shake on it!";
+    hsBlocking = !allAgreed;
+  }
+
   $("lobbyNote").textContent = isHost
-    ? (draft.seats.length < 2 ? "Invite a friend or add a bot, then start." : "Everyone in? Hit start.")
+    ? (draft.seats.length < 2 ? "Invite a friend or add a bot, then start." : hs && hsBlocking ? "Waiting for everyone to shake on it…" : "Everyone in? Hit start.")
     : "Waiting for the host to start…";
-  $("startBtn").disabled = draft.seats.length < 2;
+  $("startBtn").disabled = draft.seats.length < 2 || hsBlocking;
 }
+
+$("hsAgreeBtn").addEventListener("click", async () => {
+  $("hsAgreeBtn").disabled = true;
+  try { await api(`/api/draft/${draft.code}/handshake`, { userId: me.id }); } catch (e) { toast(e.message); $("hsAgreeBtn").disabled = false; }
+});
 
 function _showCodeEdit() {
   $("codeEditIn").value = draft.code;
@@ -1209,6 +1264,7 @@ function localBotLoop() {
 }
 
 // ================= boot =================
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 renderTop();
 if (!me) openProfile(true);
 else if (pendingJoin) { const c = pendingJoin; pendingJoin = null; joinByCode(c); }

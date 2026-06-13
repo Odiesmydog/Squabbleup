@@ -1,0 +1,14 @@
+{
+  "name": "SquabbleUP",
+  "short_name": "SquabbleUP",
+  "description": "Snake drafts with your friends across every sport",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#2B2926",
+  "theme_color": "#2B2926",
+  "orientation": "portrait-primary",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icon-maskable.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}

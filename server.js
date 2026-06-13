@@ -178,7 +178,7 @@ app.post("/api/friends/add", ah(async (req, res) => {
 
 // create draft (lobby)
 app.post("/api/draft/create", ah(async (req, res) => {
-  const { hostId, sport, rounds, name } = req.body;
+  const { hostId, sport, rounds, name, handshake } = req.body;
   const u = (await pool.query("SELECT * FROM users WHERE id=$1", [hostId])).rows[0];
   if (!u) return res.status(404).json({ error: "register first" });
   let code;
@@ -190,9 +190,24 @@ app.post("/api/draft/create", ah(async (req, res) => {
     status: "lobby", hostId,
     seats: [{ userId: hostId, name: u.name, av: u.av, img: u.img, bot: false, roster: [] }],
     picks: [], chat: [],
+    handshake: handshake?.stake ? { stake: String(handshake.stake).slice(0, 60), agreed: [] } : null,
   };
   await pool.query("INSERT INTO drafts (code, state, participants) VALUES ($1,$2,$3)", [code, state, [hostId]]);
   res.json({ code });
+}));
+
+app.post("/api/draft/:code/handshake", ah(async (req, res) => {
+  const code = req.params.code.toUpperCase();
+  const { userId } = req.body;
+  const r = await pool.query("SELECT state FROM drafts WHERE code=$1", [code]);
+  if (!r.rows.length) return res.status(404).json({ error: "Draft not found" });
+  const st = r.rows[0].state;
+  if (!st.handshake) return res.status(400).json({ error: "No handshake on this draft" });
+  if (!st.seats.find((s) => s.userId === userId)) return res.status(403).json({ error: "Not in this draft" });
+  if (!st.handshake.agreed.includes(userId)) st.handshake.agreed.push(userId);
+  await pool.query("UPDATE drafts SET state=$1, updated=now() WHERE code=$2", [JSON.stringify(st), code]);
+  broadcast(code);
+  res.json({ ok: true });
 }));
 
 app.post("/api/draft/:code/recode", ah(async (req, res) => {
@@ -280,6 +295,10 @@ app.post("/api/draft/:code/removeseat", ah((req, res) => hostAction(req, res, (s
 app.post("/api/draft/:code/start", ah((req, res) => hostAction(req, res, (st) => {
   if (st.status !== "lobby") return "Already started";
   if (st.seats.length < 2) return "Need at least 2 drafters — invite a friend or add a bot";
+  if (st.handshake) {
+    const nonBots = st.seats.filter((s) => !s.bot);
+    if (!nonBots.every((s) => st.handshake.agreed.includes(s.userId))) return "Everyone must shake on it before starting";
+  }
   st.status = "active";
 })));
 
