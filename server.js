@@ -96,12 +96,14 @@ function scheduleBot(code, s) {
     const cur = st.seats[pickerIndex(st)];
     if (!cur.bot) return;
     const taken = new Set(st.picks.map((p) => p.player));
-    const todayNames = await scoring.todaysPoolPlayers(st.sport).catch(() => null);
-    const avail = PLAYERS
+    const { players: todayNames, roster: todayRoster } = await scoring.todaysSchedule(st.sport).catch(() => ({ players: null, roster: [] }));
+    const rankMap = new Map(PLAYERS.map((p) => [p.n, p.r]));
+    const pool = todayRoster.length > 0 ? todayRoster : PLAYERS.filter((p) => st.sport === "ALL" || p.sp === st.sport);
+    const avail = pool
       .filter((p) => !taken.has(p.n))
       .filter((p) => st.sport === "ALL" || p.sp === st.sport)
       .filter((p) => !todayNames || todayNames.has(p.n))
-      .sort((a, b) => a.r - b.r)
+      .sort((a, b) => (rankMap.get(a.n) || 999) - (rankMap.get(b.n) || 999))
       .slice(0, 5);
     const pick = avail[Math.floor(Math.random() * avail.length)];
     if (!pick) return;
@@ -327,20 +329,23 @@ app.get("/api/draft/:code/projected", ah(async (req, res) => {
 // teams playing today for a sport — used to filter draft pool
 app.get("/api/schedule/:sport", ah(async (req, res) => {
   const sport = req.params.sport.toUpperCase();
-  const { players, matchups } = await scoring.todaysSchedule(sport);
+  const { players, matchups, roster } = await scoring.todaysSchedule(sport);
   const nextDay = players ? null : await scoring.nextGameDay(sport);
-  res.json({ players: players ? [...players] : null, matchups, nextDay });
+  res.json({ players: players ? [...players] : null, matchups, roster: roster || [], nextDay });
 }));
 
 app.get("/api/projected/:sport", ah(async (req, res) => {
   const sport = req.params.sport.toUpperCase();
-  const sportPlayers = PLAYERS.filter((p) => p.sp === sport).map((p) => p.n);
+  // use today's live roster so projections cover every draftable player, not just our static list
+  const { roster } = await scoring.todaysSchedule(sport).catch(() => ({ roster: [] }));
+  const sportPlayers = roster.length > 0
+    ? roster.map((p) => p.n)
+    : PLAYERS.filter((p) => p.sp === sport).map((p) => p.n);
   if (!sportPlayers.length) return res.json({ proj: {}, status: {} });
   const [dbProj, sleeper] = await Promise.all([
     scoring.projectedScores(pool, sportPlayers),
     scoring.sleeperEnrich(sport, sportPlayers).catch(() => ({ proj: {}, status: {} })),
   ]);
-  // Sleeper projections override rolling average when available
   const proj = { ...dbProj, ...sleeper.proj };
   res.json({ proj, status: sleeper.status });
 }));
@@ -377,7 +382,7 @@ app.get("/api/draft/:code/scores/detail", ah(async (req, res) => {
 // pick (validated)
 app.post("/api/draft/:code/pick", ah(async (req, res) => {
   const code = req.params.code.toUpperCase();
-  const { userId, player } = req.body;
+  const { userId, player, pos, sp, tm } = req.body;
   const r = await pool.query("SELECT state FROM drafts WHERE code=$1", [code]);
   const st = r.rows[0]?.state;
   if (!st) return res.status(404).json({ error: "Draft not found" });
@@ -385,7 +390,9 @@ app.post("/api/draft/:code/pick", ah(async (req, res) => {
   const idx = pickerIndex(st);
   if (st.seats[idx].userId !== userId) return res.status(403).json({ error: "Not your pick" });
   if (st.picks.some((p) => p.player === player)) return res.status(400).json({ error: "Already drafted" });
-  const p = PLAYERS.find((x) => x.n === player && (st.sport === "ALL" || x.sp === st.sport));
+  // look up in static PLAYERS first; fall back to metadata sent by client (live ESPN roster players)
+  let p = PLAYERS.find((x) => x.n === player && (st.sport === "ALL" || x.sp === st.sport));
+  if (!p && pos && sp && tm && (st.sport === "ALL" || sp === st.sport)) p = { n: player, pos, sp, tm };
   if (!p) return res.status(400).json({ error: "Unknown player" });
   applyPick(st, p);
   if (isDone(st)) finishDraft(st);

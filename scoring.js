@@ -14,6 +14,10 @@ const LEAGUES = {
   NHL: ["hockey", "nhl"],
 };
 
+// ESPN scoreboard uses 2-letter abbreviations for some NBA teams; expand to match players-data
+const ABBR_EXPAND = { SA: "SAS", GS: "GSW", NY: "NYK", NO: "NOP" };
+function normTeamAbbr(abbr) { const a = (abbr || "").toUpperCase(); return ABBR_EXPAND[a] || a; }
+
 // label-driven rules: `${statGroup}:${LABEL}` ('*' = any group). Public + standard.
 const RULES = {
   football: {
@@ -113,43 +117,88 @@ async function todaysTeams(sport) {
     const teams = new Set();
     for (const ev of sb.events || []) {
       for (const comp of ev.competitions?.[0]?.competitors || []) {
-        const abbr = comp.team?.abbreviation;
-        if (abbr) teams.add(abbr.toUpperCase());
+        const abbr = normTeamAbbr(comp.team?.abbreviation);
+        if (abbr) teams.add(abbr);
       }
     }
     return teams.size > 0 ? teams : null;
   } catch { return null; }
 }
 
-// return pool players from today's games + matchup label per team (e.g. "OKC @ GSW")
-async function todaysSchedule(sport) {
+const _schedCache = new Map();
+const _SCHED_TTL = 5 * 60 * 1000;
+
+async function _fetchSchedule(sport) {
+  // Golf: check for active/upcoming PGA tournament
+  if (sport === "GOLF") {
+    try {
+      const sb = await jget("https://site.api.espn.com/apis/site/v2/sports/golf/pga/scoreboard");
+      const active = (sb.events || []).filter((ev) => ev.status?.type?.state !== "post");
+      if (!active.length) return { players: null, matchups: {}, roster: [] };
+      const tournName = active[0]?.shortName || active[0]?.name || "PGA Tour";
+      const names = new Set(); const matchups = {}; const roster = [];
+      for (const p of PLAYERS.filter((x) => x.sp === "GOLF")) { names.add(p.n); matchups[p.tm] = tournName; roster.push(p); }
+      return { players: names.size > 0 ? names : null, matchups, roster };
+    } catch { return { players: null, matchups: {}, roster: [] }; }
+  }
+  // Tennis: check ATP/WTA events today
+  if (sport === "TEN") {
+    const day = dstr(new Date()); const names = new Set(); const matchups = {}; const roster = [];
+    for (const tour of ["atp", "wta"]) {
+      try {
+        const sb = await jget(`https://site.api.espn.com/apis/site/v2/sports/tennis/${tour}/scoreboard?dates=${day}`);
+        const active = (sb.events || []).filter((ev) => ev.status?.type?.state !== "post");
+        if (!active.length) continue;
+        const tournName = active[0]?.shortName || active[0]?.name || `${tour.toUpperCase()} Tennis`;
+        const pos = tour === "atp" ? "ATP" : "WTA";
+        for (const p of PLAYERS.filter((x) => x.sp === "TEN" && x.pos === pos)) { names.add(p.n); matchups[p.tm] = tournName; roster.push(p); }
+      } catch {}
+    }
+    return { players: names.size > 0 ? names : null, matchups, roster };
+  }
   const pair = LEAGUES[sport];
-  if (!pair) return { players: null, matchups: {} };
+  if (!pair) return { players: null, matchups: {}, roster: [] };
   const day = dstr(new Date());
   try {
     const sb = await jget(`https://site.api.espn.com/apis/site/v2/sports/${pair[0]}/${pair[1]}/scoreboard?dates=${day}`);
-    if (!sb.events?.length) return { players: null, matchups: {} };
-    const names = new Set();
-    const matchups = {};
+    if (!sb.events?.length) return { players: null, matchups: {}, roster: [] };
+    const names = new Set(); const matchups = {}; const roster = [];
     for (const ev of sb.events || []) {
       const comps = ev.competitions?.[0]?.competitors || [];
       const away = comps.find((c) => c.homeAway === "away");
       const home = comps.find((c) => c.homeAway === "home");
-      const label = away && home
-        ? `${away.team.abbreviation} @ ${home.team.abbreviation}`
-        : comps.map((c) => c.team?.abbreviation).filter(Boolean).join(" vs ");
+      const awayAbbr = normTeamAbbr(away?.team?.abbreviation);
+      const homeAbbr = normTeamAbbr(home?.team?.abbreviation);
+      const label = away && home ? `${awayAbbr} @ ${homeAbbr}` : comps.map((c) => normTeamAbbr(c.team?.abbreviation)).filter(Boolean).join(" vs ");
       for (const comp of comps) {
-        const abbr = comp.team?.abbreviation?.toUpperCase();
-        if (abbr) {
-          matchups[abbr] = label;
-          PLAYERS.filter((p) => p.sp === sport && p.tm === abbr).forEach((p) => names.add(p.n));
+        const abbr = normTeamAbbr(comp.team?.abbreviation);
+        const teamId = comp.team?.id;
+        if (!abbr) continue;
+        matchups[abbr] = label;
+        let added = false;
+        if (teamId) {
+          try {
+            const r = await jget(`https://site.api.espn.com/apis/site/v2/sports/${pair[0]}/${pair[1]}/teams/${teamId}/roster`);
+            for (const a of r.athletes || []) {
+              if (a.displayName) { names.add(a.displayName); roster.push({ n: a.displayName, pos: a.position?.abbreviation || "?", tm: abbr, sp: sport }); }
+            }
+            added = true;
+          } catch {}
         }
+        if (!added) PLAYERS.filter((p) => p.sp === sport && p.tm === abbr).forEach((p) => { names.add(p.n); roster.push(p); });
       }
     }
-    return { players: names.size > 0 ? names : null, matchups };
-  } catch { return { players: null, matchups: {} }; }
+    return { players: names.size > 0 ? names : null, matchups, roster };
+  } catch { return { players: null, matchups: {}, roster: [] }; }
 }
-// kept for internal use by server bot
+
+async function todaysSchedule(sport) {
+  const hit = _schedCache.get(sport);
+  if (hit && Date.now() - hit.ts < _SCHED_TTL) return hit.data;
+  const data = await _fetchSchedule(sport);
+  _schedCache.set(sport, { data, ts: Date.now() });
+  return data;
+}
 async function todaysPoolPlayers(sport) { return (await todaysSchedule(sport)).players; }
 
 // find the next calendar date (up to 14 days out) that has games for a sport
@@ -191,8 +240,8 @@ async function pollLeagueDay(pool, sport, dayDate) {
     catch (e) { continue; }
     const scored = scoreSummary(FAMILY[sport], summary);
     for (const [espnName, v] of scored) {
-      const poolName = matchPool(idx, espnName);
-      if (!poolName) continue;
+      // use canonical name from our pool if available, otherwise store ESPN displayName directly
+      const poolName = matchPool(idx, espnName) || espnName;
       await upsertScore(pool, dayDate, sport, poolName, Math.round(v.pts * 10) / 10, v.parts.join(" · "));
     }
   }
