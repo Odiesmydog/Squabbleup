@@ -900,8 +900,10 @@ async function _doRecode() {
   try {
     const { code: newCode } = await api(`/api/draft/${draft.code}/recode`, { hostId: me.id, newCode: nc });
     draft.code = newCode;
-    leaveDraft(); connect(newCode);
     _hideCodeEdit();
+    leaveDraft();
+    connect(newCode);
+    routeDraft();
     toast(`Room code set to ${newCode}`);
   } catch (e) { toast(e.message || "Code already taken"); }
 }

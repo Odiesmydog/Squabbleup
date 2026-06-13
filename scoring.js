@@ -133,7 +133,7 @@ async function _fetchSchedule(sport) {
   if (sport === "GOLF") {
     try {
       const sb = await jget("https://site.api.espn.com/apis/site/v2/sports/golf/pga/scoreboard");
-      const active = (sb.events || []).filter((ev) => ev.status?.type?.state !== "post");
+      const active = (sb.events || []).filter((ev) => ev.status?.type?.state === "pre");
       if (!active.length) return { players: null, matchups: {}, roster: [] };
       const tournName = active[0]?.shortName || active[0]?.name || "PGA Tour";
       const names = new Set(); const matchups = {}; const roster = [];
@@ -147,7 +147,7 @@ async function _fetchSchedule(sport) {
     for (const tour of ["atp", "wta"]) {
       try {
         const sb = await jget(`https://site.api.espn.com/apis/site/v2/sports/tennis/${tour}/scoreboard?dates=${day}`);
-        const active = (sb.events || []).filter((ev) => ev.status?.type?.state !== "post");
+        const active = (sb.events || []).filter((ev) => ev.status?.type?.state === "pre");
         if (!active.length) continue;
         const tournName = active[0]?.shortName || active[0]?.name || `${tour.toUpperCase()} Tennis`;
         const pos = tour === "atp" ? "ATP" : "WTA";
@@ -166,6 +166,7 @@ async function _fetchSchedule(sport) {
     // known positions from static list take priority over ESPN's generic G/F/C
     const knownPos = new Map(PLAYERS.map((p) => [p.n, p.pos]));
     for (const ev of sb.events || []) {
+      if (ev.status?.type?.state !== "pre") continue; // only allow picks from games not yet started
       const comps = ev.competitions?.[0]?.competitors || [];
       const away = comps.find((c) => c.homeAway === "away");
       const home = comps.find((c) => c.homeAway === "home");
