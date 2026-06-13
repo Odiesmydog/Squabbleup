@@ -116,17 +116,6 @@ async function notifyPick(userId, draftName, code) {
   }
 }
 
-app.get("/api/push/key", (req, res) => res.json({ key: VAPID_PUBLIC }));
-
-app.post("/api/push/subscribe", ah(async (req, res) => {
-  const { userId, subscription } = req.body;
-  if (!userId || !subscription?.endpoint) return res.status(400).json({ error: "bad request" });
-  await pool.query(
-    "INSERT INTO push_subscriptions (user_id, endpoint, subscription) VALUES ($1,$2,$3) ON CONFLICT (user_id, endpoint) DO UPDATE SET subscription=$3",
-    [userId, subscription.endpoint, JSON.stringify(subscription)]
-  );
-  res.json({ ok: true });
-}));
 
 // ---------------- bot picks (server-side) ----------------
 const PLAYERS = require("./public/players-data.js");
@@ -176,6 +165,17 @@ function finishDraft(st) {
 
 // ---------------- api ----------------
 const ah = (fn) => (req, res) => fn(req, res).catch((e) => { console.error(e); res.status(500).json({ error: "server error" }); });
+
+app.get("/api/push/key", (req, res) => res.json({ key: VAPID_PUBLIC }));
+app.post("/api/push/subscribe", ah(async (req, res) => {
+  const { userId, subscription } = req.body;
+  if (!userId || !subscription?.endpoint) return res.status(400).json({ error: "bad request" });
+  await pool.query(
+    "INSERT INTO push_subscriptions (user_id, endpoint, subscription) VALUES ($1,$2,$3) ON CONFLICT (user_id, endpoint) DO UPDATE SET subscription=$3",
+    [userId, subscription.endpoint, JSON.stringify(subscription)]
+  );
+  res.json({ ok: true });
+}));
 
 // register / update profile
 app.post("/api/register", ah(async (req, res) => {
