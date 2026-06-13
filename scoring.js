@@ -163,6 +163,8 @@ async function _fetchSchedule(sport) {
     const sb = await jget(`https://site.api.espn.com/apis/site/v2/sports/${pair[0]}/${pair[1]}/scoreboard?dates=${day}`);
     if (!sb.events?.length) return { players: null, matchups: {}, roster: [] };
     const names = new Set(); const matchups = {}; const roster = [];
+    // known positions from static list take priority over ESPN's generic G/F/C
+    const knownPos = new Map(PLAYERS.map((p) => [p.n, p.pos]));
     for (const ev of sb.events || []) {
       const comps = ev.competitions?.[0]?.competitors || [];
       const away = comps.find((c) => c.homeAway === "away");
@@ -180,7 +182,11 @@ async function _fetchSchedule(sport) {
           try {
             const r = await jget(`https://site.api.espn.com/apis/site/v2/sports/${pair[0]}/${pair[1]}/teams/${teamId}/roster`);
             for (const a of r.athletes || []) {
-              if (a.displayName) { names.add(a.displayName); roster.push({ n: a.displayName, pos: a.position?.abbreviation || "?", tm: abbr, sp: sport }); }
+              if (a.displayName) {
+                const pos = knownPos.get(a.displayName) || a.position?.abbreviation || "?";
+                names.add(a.displayName);
+                roster.push({ n: a.displayName, pos, tm: abbr, sp: sport });
+              }
             }
             added = true;
           } catch {}

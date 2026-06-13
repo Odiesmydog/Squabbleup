@@ -868,7 +868,8 @@ function renderRoom() {
     note.innerHTML = `<div class="noGamesBox">No ${SPORTNAMES[draft.sport] || draft.sport} games today — next matches on <strong>${nextGameDay}</strong>. You're drafting now for those games.</div>`;
   } else { note.style.display = "none"; }
 
-  const poses = ["All", ...new Set(PLAYERS.filter((p) => draft.sport === "ALL" || p.sp === draft.sport).map((p) => p.pos))];
+  const posPool = todaysRoster.length > 0 ? todaysRoster : PLAYERS.filter((p) => draft.sport === "ALL" || p.sp === draft.sport);
+  const poses = ["All", ...new Set(posPool.map((p) => p.pos))];
   $("posFilters").innerHTML = poses.map((p) => `<button class="fchip ${posFilter === p ? "on" : ""}" data-pos="${p}">${p}</button>`).join("");
 
   $("pool").innerHTML = availPlayers().slice(0, 50).map((p) => {
