@@ -163,11 +163,12 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
 .muRow .pts { font-family: var(--display); font-weight: 700; font-size: 19px; color: var(--green); }
 .muDetail { background: var(--bg); border-radius: 10px; margin: -4px 0 8px; padding: 8px 12px; display: none; }
 .muDetail.open { display: block; }
-.muP { display: flex; gap: 8px; font-size: 12.5px; padding: 4px 0; border-bottom: 1px solid var(--raised); align-items: baseline; }
+.muP { display: grid; grid-template-columns: 1fr auto; grid-template-rows: auto auto; column-gap: 10px; row-gap: 1px; padding: 7px 0; border-bottom: 1px solid var(--raised); }
 .muP:last-child { border-bottom: none; }
-.muP .nm2 { flex: 1; font-weight: 700; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.muP .ln { color: var(--dim); font-size: 11px; flex: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.muP .pp { font-weight: 800; color: var(--green); }
+.muP .nm2 { font-weight: 700; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.muP .ptag { display: inline-block; font-size: 10px; color: var(--dim); background: var(--raised); border-radius: 4px; padding: 1px 5px; margin-left: 5px; vertical-align: middle; }
+.muP .ln { grid-column: 1; color: var(--dim); font-size: 11px; line-height: 1.5; word-break: break-word; }
+.muP .pp { grid-row: 1; grid-column: 2; font-weight: 800; color: var(--green); text-align: right; align-self: center; white-space: nowrap; }
 .scoreNote { font-size: 11.5px; color: var(--dim); text-align: center; margin: 10px 0; }
 .cardX { background: var(--raised); color: var(--dim); border-radius: 8px; width: 30px; height: 30px; font-size: 14px; flex-shrink: 0; box-shadow: 0 2px 0 #2e2b28; }
 .joinRow { display: flex; gap: 8px; margin: 0 0 14px; }
@@ -213,7 +214,7 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
     <div class="stepLbl">How scoring works</div>
     <div class="bCol" style="cursor:default">
       <div class="bPick"><span class="rd">1</span><span>Finish a draft — that locks your roster.</span></div>
-      <div class="bPick"><span class="rd">2</span><span>A 7-day scoring window opens. Your players earn fantasy points from their real games.</span></div>
+      <div class="bPick"><span class="rd">2</span><span>A scoring window opens — 1 day for NBA/MLB/NHL, 4 days for Golf, 7 days for NFL. Your players earn fantasy points from their real games.</span></div>
       <div class="bPick"><span class="rd">3</span><span>Stats come from live box scores, refreshed every few minutes — identical for everyone in the draft.</span></div>
       <div class="bPick"><span class="rd">4</span><span>Highest total when the window closes wins the squabble. 👑</span></div>
     </div>
@@ -541,7 +542,7 @@ function renderTabs() {
   // live tab: done + inside scoring window
   const live = drafts.filter((d) => d.status === "done" && !d.archived && d.scoringEnd && Date.now() < d.scoringEnd);
   $("liveList").innerHTML = live.length ? live.map((d) => dCardHtml(d, { close: true })).join("")
-    : `<div class="emptyBox"><div class="e">🔴</div>Nothing scoring right now.<br />When a draft finishes, it moves here and your players earn points from their real games for 7 days.</div>`;
+    : `<div class="emptyBox"><div class="e">🔴</div>Nothing scoring right now.<br />Finish a draft and it moves here — your players earn points from their real games during the scoring window.</div>`;
   // results tab: done unarchived (+ closed list), plus finished locals
   const done = drafts.filter((d) => d.status === "done" && !d.archived);
   const localDone = locals().map((d, i) => ({ d, i })).filter((x) => x.d.picks.length >= x.d.seats.length * x.d.rounds);
@@ -618,12 +619,12 @@ $("createDraft").addEventListener("click", async () => {
 
 // ================= draft connection =================
 let draft = null, ws = null, pollT = null, posFilter = "All", q = "", activeTab = "pick", unreadChat = false, lastChatLen = 0;
-let todaysTeams = null; // set of team abbreviations playing today
+let todaysPlayers = null; // set of pool player names in today's games
 async function fetchTodaysTeams(sport) {
   try {
-    const { teams } = await api(`/api/schedule/${sport}`);
-    todaysTeams = teams ? new Set(teams) : null;
-  } catch { todaysTeams = null; }
+    const { players } = await api(`/api/schedule/${sport}`);
+    todaysPlayers = players ? new Set(players) : null;
+  } catch { todaysPlayers = null; }
 }
 
 async function joinByCode(code) {
@@ -713,7 +714,7 @@ function availPlayers() {
   return PLAYERS
     .filter((p) => !taken.has(p.n))
     .filter((p) => p.sp === draft.sport)
-    .filter((p) => !todaysTeams || todaysTeams.has(p.tm))
+    .filter((p) => !todaysPlayers || todaysPlayers.has(p.n))
     .filter((p) => posFilter === "All" || p.pos === posFilter)
     .filter((p) => p.n.toLowerCase().includes(q))
     .sort((a, b) => a.r - b.r);
@@ -721,7 +722,7 @@ function availPlayers() {
 function renderRoom() {
   if (!$("scrRoom").classList.contains("on")) {
     show("scrRoom"); setTab("pick");
-    todaysTeams = null;
+    todaysPlayers = null;
     fetchTodaysTeams(draft.sport).then(() => renderRoom());
   }
   document.querySelector('[data-tab="chat"]').style.display = draft.local ? "none" : "block";
@@ -841,13 +842,12 @@ function renderMatchup(targetId) {
         const pr = projCache[p.n];
         const pts = sc?.pts || 0;
         const days = scoresDetail[p.n] || [];
-        const log = days.map((d) => `<div class="muP" style="opacity:.75"><span class="nm2" style="color:var(--dim)">↳ ${d.day.slice(5)}</span><span class="ln">${esc(d.line)}</span><span class="pp" style="color:var(--dim)">${d.pts.toFixed(1)}</span></div>`).join("");
-        const projStr = pr ? `<span style="font-size:11px;color:var(--dim);margin-left:4px">proj ${pr.proj.toFixed(1)}</span>` : "";
+        const log = days.map((d) => `<div class="muP" style="opacity:.7"><span class="nm2" style="color:var(--dim);font-size:11px">↳ ${d.day.slice(5)}</span><span class="pp" style="color:var(--dim);font-size:12px">${d.pts.toFixed(1)}</span><span class="ln">${esc(d.line)}</span></div>`).join("");
+        const projStr = pr ? `<span style="font-size:10px;color:var(--dim)">proj ${pr.proj.toFixed(1)}</span>` : "";
         return `<div class="muP">
-          <span class="nm2">${esc(p.n)}</span>
-          <span class="ptag">${p.sp} ${p.pos}</span>
-          <span class="ln">${sc?.line ? esc(sc.line) : "no stats yet"}</span>
-          <span style="text-align:right"><span class="pp ${pts === 0 ? "zero" : ""}">${pts > 0 ? "+" : ""}${pts.toFixed(1)}</span>${projStr}</span>
+          <span class="nm2">${esc(p.n)}<span class="ptag">${p.sp} ${p.pos}</span></span>
+          <span class="pp ${pts === 0 ? "zero" : ""}">${pts > 0 ? "+" : ""}${pts.toFixed(1)}${projStr ? `<br>${projStr}` : ""}</span>
+          <span class="ln">${sc?.line ? esc(sc.line) : '<span style="color:var(--dim)">no stats yet</span>'}</span>
         </div>${log}`;
       }).join("") : '<div class="muP"><span class="ln" style="color:var(--dim)">No picks yet</span></div>'}
     </div>`).join("") +

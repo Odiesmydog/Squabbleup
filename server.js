@@ -321,8 +321,8 @@ app.get("/api/draft/:code/projected", ah(async (req, res) => {
 // teams playing today for a sport — used to filter draft pool
 app.get("/api/schedule/:sport", ah(async (req, res) => {
   const sport = req.params.sport.toUpperCase();
-  const teams = await scoring.todaysTeams(sport);
-  res.json({ teams: teams ? [...teams] : null });
+  const players = await scoring.todaysPoolPlayers(sport);
+  res.json({ players: players ? [...players] : null });
 }));
 
 // debug: show raw ESPN scoreboard events for a sport (e.g. /api/stats/espn/MLB)
