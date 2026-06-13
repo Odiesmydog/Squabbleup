@@ -4,95 +4,15 @@
       <stop offset="0%" stop-color="#1c2e0e"/>
       <stop offset="100%" stop-color="#0c0b0a"/>
     </radialGradient>
-    <radialGradient id="flash" cx="50%" cy="50%" r="50%">
-      <stop offset="0%"   stop-color="#ffffff" stop-opacity="1"/>
-      <stop offset="45%"  stop-color="#ffe84e" stop-opacity="0.85"/>
-      <stop offset="100%" stop-color="#F0C04C" stop-opacity="0"/>
-    </radialGradient>
   </defs>
 
   <!-- Full-bleed background for maskable (OS clips to shape) -->
   <rect width="512" height="512" fill="url(#bg)"/>
 
-  <!-- ─── LEFT FIST (green) punching RIGHT ─── -->
-
-  <!-- Speed lines -->
-  <line x1="10"  y1="252" x2="162" y2="252" stroke="#7FB94C" stroke-width="8"   stroke-linecap="round" opacity="0.5"/>
-  <line x1="16"  y1="222" x2="148" y2="234" stroke="#7FB94C" stroke-width="5"   stroke-linecap="round" opacity="0.32"/>
-  <line x1="16"  y1="282" x2="148" y2="270" stroke="#7FB94C" stroke-width="5"   stroke-linecap="round" opacity="0.32"/>
-
-  <!-- Thumb -->
-  <rect x="46"  y="155" width="112" height="66" rx="28" fill="#4a8018"/>
-  <rect x="46"  y="155" width="112" height="66" rx="28" fill="#7FB94C"/>
-  <rect x="54"  y="162" width="64"  height="24" rx="14" fill="#b8e870" opacity="0.38"/>
-
-  <!-- Fist shadow -->
-  <rect x="22"  y="213" width="234" height="122" rx="36" fill="#060906" opacity="0.55" transform="translate(4,8)"/>
-  <!-- Fist dark base -->
-  <rect x="22"  y="213" width="234" height="122" rx="36" fill="#386012"/>
-  <!-- Fist bright green -->
-  <rect x="22"  y="213" width="234" height="122" rx="36" fill="#7FB94C"/>
-  <!-- Knuckle shine strip -->
-  <rect x="32"  y="213" width="214" height="42"  rx="36" fill="#b0e060" opacity="0.28"/>
-  <!-- Finger joints -->
-  <line x1="118" y1="215" x2="118" y2="258" stroke="#346010" stroke-width="4" opacity="0.55"/>
-  <line x1="162" y1="215" x2="162" y2="258" stroke="#346010" stroke-width="4" opacity="0.55"/>
-  <line x1="206" y1="215" x2="206" y2="258" stroke="#346010" stroke-width="4" opacity="0.55"/>
-  <!-- Knuckle bumps -->
-  <circle cx="98"  cy="228" r="11" fill="#c8f080" opacity="0.38"/>
-  <circle cx="140" cy="228" r="11" fill="#c8f080" opacity="0.38"/>
-  <circle cx="184" cy="228" r="11" fill="#c8f080" opacity="0.38"/>
-  <circle cx="228" cy="228" r="11" fill="#c8f080" opacity="0.38"/>
-
-  <!-- ─── RIGHT FIST (gold) punching LEFT ─── -->
-
-  <!-- Speed lines -->
-  <line x1="502" y1="252" x2="350" y2="252" stroke="#F0C04C" stroke-width="8"   stroke-linecap="round" opacity="0.5"/>
-  <line x1="496" y1="222" x2="364" y2="234" stroke="#F0C04C" stroke-width="5"   stroke-linecap="round" opacity="0.32"/>
-  <line x1="496" y1="282" x2="364" y2="270" stroke="#F0C04C" stroke-width="5"   stroke-linecap="round" opacity="0.32"/>
-
-  <!-- Thumb (mirrored — top-right of right fist) -->
-  <rect x="354" y="155" width="112" height="66" rx="28" fill="#a07010"/>
-  <rect x="354" y="155" width="112" height="66" rx="28" fill="#F0C04C"/>
-  <rect x="394" y="162" width="64"  height="24" rx="14" fill="#fff4a0" opacity="0.4"/>
-
-  <!-- Fist shadow -->
-  <rect x="256" y="213" width="234" height="122" rx="36" fill="#060906" opacity="0.55" transform="translate(-4,8)"/>
-  <!-- Fist dark base -->
-  <rect x="256" y="213" width="234" height="122" rx="36" fill="#906000"/>
-  <!-- Fist bright gold -->
-  <rect x="256" y="213" width="234" height="122" rx="36" fill="#F0C04C"/>
-  <!-- Knuckle shine -->
-  <rect x="266" y="213" width="214" height="42"  rx="36" fill="#fff8b0" opacity="0.32"/>
-  <!-- Finger joints -->
-  <line x1="394" y1="215" x2="394" y2="258" stroke="#906000" stroke-width="4" opacity="0.55"/>
-  <line x1="350" y1="215" x2="350" y2="258" stroke="#906000" stroke-width="4" opacity="0.55"/>
-  <line x1="306" y1="215" x2="306" y2="258" stroke="#906000" stroke-width="4" opacity="0.55"/>
-  <!-- Knuckle bumps -->
-  <circle cx="414" cy="228" r="11" fill="#fff8c8" opacity="0.45"/>
-  <circle cx="372" cy="228" r="11" fill="#fff8c8" opacity="0.45"/>
-  <circle cx="328" cy="228" r="11" fill="#fff8c8" opacity="0.45"/>
-  <circle cx="284" cy="228" r="11" fill="#fff8c8" opacity="0.45"/>
-
-  <!-- ─── IMPACT ─── -->
-  <!-- Outer glow -->
-  <circle cx="256" cy="258" r="88" fill="url(#flash)" opacity="0.8"/>
-  <!-- Core flash -->
-  <circle cx="256" cy="258" r="24" fill="white"/>
-  <circle cx="256" cy="258" r="14" fill="#fffde8"/>
-  <!-- Spark rays -->
-  <line x1="256" y1="224" x2="256" y2="200" stroke="white" stroke-width="6" stroke-linecap="round" opacity="0.9"/>
-  <line x1="256" y1="292" x2="256" y2="316" stroke="white" stroke-width="6" stroke-linecap="round" opacity="0.9"/>
-  <line x1="232" y1="234" x2="214" y2="216" stroke="white" stroke-width="5" stroke-linecap="round" opacity="0.8"/>
-  <line x1="280" y1="234" x2="298" y2="216" stroke="white" stroke-width="5" stroke-linecap="round" opacity="0.8"/>
-  <line x1="232" y1="282" x2="214" y2="300" stroke="white" stroke-width="5" stroke-linecap="round" opacity="0.8"/>
-  <line x1="280" y1="282" x2="298" y2="300" stroke="white" stroke-width="5" stroke-linecap="round" opacity="0.8"/>
-
-  <!-- ─── WORDMARK ─── -->
-  <text x="256" y="392" text-anchor="middle"
+  <text x="256" y="230" text-anchor="middle"
         font-family="'Arial Black','Helvetica Neue',sans-serif"
-        font-size="29" font-weight="900" letter-spacing="5" fill="#7FB94C">SQUABBLE</text>
-  <text x="256" y="466" text-anchor="middle"
+        font-size="72" font-weight="900" letter-spacing="6" fill="#7FB94C">SQUABBLE</text>
+  <text x="256" y="410" text-anchor="middle"
         font-family="'Arial Black','Helvetica Neue',sans-serif"
-        font-size="84" font-weight="900" letter-spacing="8" fill="#F0C04C">UP</text>
+        font-size="220" font-weight="900" letter-spacing="12" fill="#F0C04C">UP</text>
 </svg>
