@@ -322,7 +322,8 @@ app.get("/api/draft/:code/projected", ah(async (req, res) => {
 app.get("/api/schedule/:sport", ah(async (req, res) => {
   const sport = req.params.sport.toUpperCase();
   const players = await scoring.todaysPoolPlayers(sport);
-  res.json({ players: players ? [...players] : null });
+  const nextDay = players ? null : await scoring.nextGameDay(sport);
+  res.json({ players: players ? [...players] : null, nextDay });
 }));
 
 // debug: show raw ESPN scoreboard events for a sport (e.g. /api/stats/espn/MLB)

@@ -170,6 +170,7 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
 .muP .ln { grid-column: 1; color: var(--dim); font-size: 11px; line-height: 1.5; word-break: break-word; }
 .muP .pp { grid-row: 1; grid-column: 2; font-weight: 800; color: var(--green); text-align: right; align-self: center; white-space: nowrap; }
 .scoreNote { font-size: 11.5px; color: var(--dim); text-align: center; margin: 10px 0; }
+.noGamesBox { background: var(--raised); border-left: 3px solid var(--gold); border-radius: 8px; padding: 10px 13px; font-size: 12.5px; color: var(--dim); margin: 8px 0; line-height: 1.5; }
 .cardX { background: var(--raised); color: var(--dim); border-radius: 8px; width: 30px; height: 30px; font-size: 14px; flex-shrink: 0; box-shadow: 0 2px 0 #2e2b28; }
 .joinRow { display: flex; gap: 8px; margin: 0 0 14px; }
 .joinRow input { flex: 1; background: var(--panel); border: 2px solid var(--line); border-radius: 12px; padding: 11px 14px; color: var(--text); font-size: 16px; font-weight: 800; text-transform: uppercase; letter-spacing: 2px; min-width: 0; }
@@ -320,6 +321,7 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
     </div>
     <div id="tabPick">
       <input class="search" id="pSearch" placeholder="Search players" />
+      <div id="noGamesNote" style="display:none"></div>
       <div class="filters" id="posFilters"></div>
       <div id="pool"></div>
     </div>
@@ -619,12 +621,13 @@ $("createDraft").addEventListener("click", async () => {
 
 // ================= draft connection =================
 let draft = null, ws = null, pollT = null, posFilter = "All", q = "", activeTab = "pick", unreadChat = false, lastChatLen = 0;
-let todaysPlayers = null; // set of pool player names in today's games
+let todaysPlayers = null, nextGameDay = null;
 async function fetchTodaysTeams(sport) {
   try {
-    const { players } = await api(`/api/schedule/${sport}`);
+    const { players, nextDay } = await api(`/api/schedule/${sport}`);
     todaysPlayers = players ? new Set(players) : null;
-  } catch { todaysPlayers = null; }
+    nextGameDay = nextDay || null;
+  } catch { todaysPlayers = null; nextGameDay = null; }
 }
 
 async function joinByCode(code) {
@@ -722,7 +725,7 @@ function availPlayers() {
 function renderRoom() {
   if (!$("scrRoom").classList.contains("on")) {
     show("scrRoom"); setTab("pick");
-    todaysPlayers = null;
+    todaysPlayers = null; nextGameDay = null;
     fetchTodaysTeams(draft.sport).then(() => renderRoom());
   }
   document.querySelector('[data-tab="chat"]').style.display = draft.local ? "none" : "block";
@@ -740,6 +743,12 @@ function renderRoom() {
   $("turnBanner").textContent = draft.local
     ? (t.bot ? `${t.name} is thinking…` : `📱 Pass the phone — ${t.name} picks!`)
     : (myTurn ? "Your pick! 🔥" : t.bot ? `${t.name} is thinking…` : `${t.name} is on the clock…`);
+
+  const note = $("noGamesNote");
+  if (nextGameDay) {
+    note.style.display = "block";
+    note.innerHTML = `<div class="noGamesBox">No ${SPORTNAMES[draft.sport] || draft.sport} games today — next matches on <strong>${nextGameDay}</strong>. You're drafting now for those games.</div>`;
+  } else { note.style.display = "none"; }
 
   const poses = ["All", ...new Set(PLAYERS.filter((p) => draft.sport === "ALL" || p.sp === draft.sport).map((p) => p.pos))];
   $("posFilters").innerHTML = poses.map((p) => `<button class="fchip ${posFilter === p ? "on" : ""}" data-pos="${p}">${p}</button>`).join("");

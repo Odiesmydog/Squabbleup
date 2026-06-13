@@ -155,6 +155,22 @@ async function todaysPoolPlayers(sport) {
   } catch { return null; }
 }
 
+// find the next calendar date (up to 14 days out) that has games for a sport
+async function nextGameDay(sport) {
+  const pair = LEAGUES[sport];
+  if (!pair) return null;
+  for (let i = 1; i <= 14; i++) {
+    const d = new Date(Date.now() + i * 864e5);
+    try {
+      const sb = await jget(`https://site.api.espn.com/apis/site/v2/sports/${pair[0]}/${pair[1]}/scoreboard?dates=${dstr(d)}`);
+      if (sb.events?.length > 0) {
+        return d.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
+      }
+    } catch {}
+  }
+  return null;
+}
+
 // ---------- pollers ----------
 async function jget(url) {
   const r = await fetch(url);
@@ -345,4 +361,4 @@ async function seedDemo(pool) {
   console.log("DEMO stats seeded (today + yesterday). Unset DEMO_STATS for real data only.");
 }
 
-module.exports = { pollAll, draftScores, draftScoreDetail, projectedScores, seedDemo, scoreSummary, todaysTeams, todaysPoolPlayers, RULES, FAMILY, golfPoints, matchPool, buildPoolIndex, norm };
+module.exports = { pollAll, draftScores, draftScoreDetail, projectedScores, seedDemo, scoreSummary, todaysTeams, todaysPoolPlayers, nextGameDay, RULES, FAMILY, golfPoints, matchPool, buildPoolIndex, norm };
