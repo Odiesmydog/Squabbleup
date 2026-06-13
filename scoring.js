@@ -503,7 +503,7 @@ async function sleeperProjectionMap(sport) {
     if (w < 1) continue;
     try {
       const data = await jget(`https://api.sleeper.app/v1/projections/${ss}/${wk.type}/${wk.season}/${w}`);
-      if (data && Object.keys(data).length > 50) {
+      if (data && Object.keys(data).length > 5) {
         _slProjCache[sport] = { data, family };
         _slProjCacheT[sport] = now;
         return _slProjCache[sport];
