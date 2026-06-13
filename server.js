@@ -98,8 +98,8 @@ function scheduleBot(code, s) {
     const taken = new Set(st.picks.map((p) => p.player));
     const { players: todayNames, roster: todayRoster } = await scoring.todaysSchedule(st.sport).catch(() => ({ players: null, roster: [] }));
     const rankMap = new Map(PLAYERS.map((p) => [p.n, p.r]));
-    const pool = todayRoster.length > 0 ? todayRoster : PLAYERS.filter((p) => st.sport === "ALL" || p.sp === st.sport);
-    const avail = pool
+    const playerPool = todayRoster.length > 0 ? todayRoster : PLAYERS.filter((p) => st.sport === "ALL" || p.sp === st.sport);
+    const avail = playerPool
       .filter((p) => !taken.has(p.n))
       .filter((p) => st.sport === "ALL" || p.sp === st.sport)
       .filter((p) => !todayNames || todayNames.has(p.n))
