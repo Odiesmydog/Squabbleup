@@ -113,6 +113,7 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
 .pRow .pn { font-weight: 800; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pRow .pd { font-size: 12px; color: var(--dim); }
 .spTag { font-family: var(--display); font-size: 10px; font-weight: 600; background: var(--raised); border-radius: 5px; padding: 2px 6px; margin-right: 5px; }
+.projTag { color: var(--green); font-weight: 700; }
 .draftBtn { font-family: var(--display); font-weight: 700; font-size: 14.5px; background: var(--green); color: var(--ink); border-radius: 10px; padding: 10px 17px; box-shadow: 0 3px 0 var(--green-d); flex-shrink: 0; }
 .draftBtn:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--green-d); }
 
@@ -171,6 +172,13 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
 .muP .pp { grid-row: 1; grid-column: 2; font-weight: 800; color: var(--green); text-align: right; align-self: center; white-space: nowrap; }
 .scoreNote { font-size: 11.5px; color: var(--dim); text-align: center; margin: 10px 0; }
 .noGamesBox { background: var(--raised); border-left: 3px solid var(--gold); border-radius: 8px; padding: 10px 13px; font-size: 12.5px; color: var(--dim); margin: 8px 0; line-height: 1.5; }
+.ruleGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+.ruleCard { background: var(--panel); border-radius: var(--r); padding: 12px; box-shadow: 0 3px 0 #232120; }
+.ruleHead { font-family: var(--display); font-weight: 700; font-size: 13px; margin-bottom: 8px; }
+.ruleLine { display: flex; justify-content: space-between; font-size: 12px; padding: 3px 0; border-bottom: 1px solid var(--raised); color: var(--dim); }
+.ruleLine:last-child { border-bottom: none; }
+.ruleLine span:last-child { font-weight: 700; color: var(--green); white-space: nowrap; margin-left: 6px; }
+.ruleLine.bad span:last-child { color: #ff6b6b; }
 .cardX { background: var(--raised); color: var(--dim); border-radius: 8px; width: 30px; height: 30px; font-size: 14px; flex-shrink: 0; box-shadow: 0 2px 0 #2e2b28; }
 .joinRow { display: flex; gap: 8px; margin: 0 0 14px; }
 .joinRow input { flex: 1; background: var(--panel); border: 2px solid var(--line); border-radius: 12px; padding: 11px 14px; color: var(--text); font-size: 16px; font-weight: 800; text-transform: uppercase; letter-spacing: 2px; min-width: 0; }
@@ -218,6 +226,61 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
       <div class="bPick"><span class="rd">2</span><span>A scoring window opens — 1 day for NBA/MLB/NHL, 4 days for Golf, 7 days for NFL. Your players earn fantasy points from their real games.</span></div>
       <div class="bPick"><span class="rd">3</span><span>Stats come from live box scores, refreshed every few minutes — identical for everyone in the draft.</span></div>
       <div class="bPick"><span class="rd">4</span><span>Highest total when the window closes wins the squabble. 👑</span></div>
+    </div>
+    <div class="stepLbl">Point values by sport</div>
+    <div class="ruleGrid">
+      <div class="ruleCard">
+        <div class="ruleHead">🏀 Basketball</div>
+        <div class="ruleLine"><span>Point scored</span><span>+1</span></div>
+        <div class="ruleLine"><span>Rebound</span><span>+1.2</span></div>
+        <div class="ruleLine"><span>Assist</span><span>+1.5</span></div>
+        <div class="ruleLine"><span>Steal or Block</span><span>+3</span></div>
+        <div class="ruleLine bad"><span>Turnover</span><span>-1</span></div>
+      </div>
+      <div class="ruleCard">
+        <div class="ruleHead">🏈 Football</div>
+        <div class="ruleLine"><span>Passing TD</span><span>+4</span></div>
+        <div class="ruleLine"><span>25 passing yards</span><span>+1</span></div>
+        <div class="ruleLine"><span>Rushing / Rec TD</span><span>+6</span></div>
+        <div class="ruleLine"><span>10 rush / rec yards</span><span>+1</span></div>
+        <div class="ruleLine"><span>1 reception (PPR)</span><span>+0.5</span></div>
+        <div class="ruleLine bad"><span>INT or fumble lost</span><span>-2</span></div>
+      </div>
+      <div class="ruleCard">
+        <div class="ruleHead">⚾ Baseball</div>
+        <div class="ruleLine"><span>Hit</span><span>+3</span></div>
+        <div class="ruleLine"><span>Run or RBI</span><span>+2</span></div>
+        <div class="ruleLine"><span>Walk</span><span>+2</span></div>
+        <div class="ruleLine"><span>Home run</span><span>+3</span></div>
+        <div class="ruleLine"><span>Stolen base</span><span>+5</span></div>
+        <div class="ruleLine"><span>Pitcher strikeout</span><span>+2</span></div>
+        <div class="ruleLine"><span>Inning pitched</span><span>+2.25</span></div>
+        <div class="ruleLine bad"><span>Earned run allowed</span><span>-2</span></div>
+      </div>
+      <div class="ruleCard">
+        <div class="ruleHead">🏒 Hockey</div>
+        <div class="ruleLine"><span>Goal</span><span>+8</span></div>
+        <div class="ruleLine"><span>Assist</span><span>+5</span></div>
+        <div class="ruleLine"><span>Shot on goal</span><span>+1.5</span></div>
+        <div class="ruleLine"><span>Blocked shot</span><span>+1.3</span></div>
+        <div class="ruleLine"><span>Goalie save</span><span>+0.7</span></div>
+        <div class="ruleLine bad"><span>Goal against (goalie)</span><span>-3.5</span></div>
+      </div>
+      <div class="ruleCard">
+        <div class="ruleHead">⛳ Golf</div>
+        <div class="ruleLine"><span>1st place</span><span>+30</span></div>
+        <div class="ruleLine"><span>2nd place</span><span>+20</span></div>
+        <div class="ruleLine"><span>3rd place</span><span>+18</span></div>
+        <div class="ruleLine"><span>Top 5</span><span>+12–16</span></div>
+        <div class="ruleLine"><span>Top 10</span><span>+12</span></div>
+        <div class="ruleLine"><span>Top 20</span><span>+8</span></div>
+        <div class="ruleLine"><span>Made cut</span><span>+3–6</span></div>
+      </div>
+      <div class="ruleCard">
+        <div class="ruleHead">🎾 Tennis</div>
+        <div class="ruleLine"><span>Match win</span><span>+10</span></div>
+        <div class="ruleLine" style="color:var(--dim);font-size:11px"><span colspan="2">Points stack — win 3 matches in a day and your player scores 30.</span></div>
+      </div>
     </div>
   </section>
 
@@ -621,13 +684,18 @@ $("createDraft").addEventListener("click", async () => {
 
 // ================= draft connection =================
 let draft = null, ws = null, pollT = null, posFilter = "All", q = "", activeTab = "pick", unreadChat = false, lastChatLen = 0;
-let todaysPlayers = null, nextGameDay = null;
+let todaysPlayers = null, nextGameDay = null, todayMatchups = {}, draftRoomProj = {};
 async function fetchTodaysTeams(sport) {
   try {
-    const { players, nextDay } = await api(`/api/schedule/${sport}`);
-    todaysPlayers = players ? new Set(players) : null;
-    nextGameDay = nextDay || null;
-  } catch { todaysPlayers = null; nextGameDay = null; }
+    const [sched, proj] = await Promise.all([
+      api(`/api/schedule/${sport}`),
+      api(`/api/projected/${sport}`).catch(() => ({})),
+    ]);
+    todaysPlayers = sched.players ? new Set(sched.players) : null;
+    nextGameDay = sched.nextDay || null;
+    todayMatchups = sched.matchups || {};
+    draftRoomProj = proj || {};
+  } catch { todaysPlayers = null; nextGameDay = null; todayMatchups = {}; draftRoomProj = {}; }
 }
 
 async function joinByCode(code) {
@@ -725,7 +793,7 @@ function availPlayers() {
 function renderRoom() {
   if (!$("scrRoom").classList.contains("on")) {
     show("scrRoom"); setTab("pick");
-    todaysPlayers = null; nextGameDay = null;
+    todaysPlayers = null; nextGameDay = null; todayMatchups = {}; draftRoomProj = {};
     fetchTodaysTeams(draft.sport).then(() => renderRoom());
   }
   document.querySelector('[data-tab="chat"]').style.display = draft.local ? "none" : "block";
@@ -753,11 +821,15 @@ function renderRoom() {
   const poses = ["All", ...new Set(PLAYERS.filter((p) => draft.sport === "ALL" || p.sp === draft.sport).map((p) => p.pos))];
   $("posFilters").innerHTML = poses.map((p) => `<button class="fchip ${posFilter === p ? "on" : ""}" data-pos="${p}">${p}</button>`).join("");
 
-  $("pool").innerHTML = availPlayers().slice(0, 40).map((p) => `
-    <div class="pRow">
-      <div class="pi"><div class="pn">${esc(p.n)}</div><div class="pd"><span class="spTag">${p.sp}</span>${p.pos} · ${p.tm}</div></div>
+  $("pool").innerHTML = availPlayers().slice(0, 40).map((p) => {
+    const game = todayMatchups[p.tm] || p.tm;
+    const proj = draftRoomProj[p.n];
+    const projStr = proj ? `<span class="projTag">${proj.proj.toFixed(1)} proj</span>` : "";
+    return `<div class="pRow">
+      <div class="pi"><div class="pn">${esc(p.n)}</div><div class="pd"><span class="spTag">${p.sp}</span>${p.pos} · ${game}${projStr ? " · " + projStr : ""}</div></div>
       ${myTurn ? `<button class="draftBtn" data-pick="${esc(p.n)}">Draft</button>` : ""}
-    </div>`).join("");
+    </div>`;
+  }).join("");
   if (activeTab === "board") $("tabBoard").innerHTML = draft.seats.map(rosterHtml).join("");
 }
 $("posFilters").addEventListener("click", (e) => { const p = e.target.getAttribute("data-pos"); if (p) { posFilter = p; renderRoom(); } });

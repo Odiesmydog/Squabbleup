@@ -323,9 +323,16 @@ app.get("/api/draft/:code/projected", ah(async (req, res) => {
 // teams playing today for a sport — used to filter draft pool
 app.get("/api/schedule/:sport", ah(async (req, res) => {
   const sport = req.params.sport.toUpperCase();
-  const players = await scoring.todaysPoolPlayers(sport);
+  const { players, matchups } = await scoring.todaysSchedule(sport);
   const nextDay = players ? null : await scoring.nextGameDay(sport);
-  res.json({ players: players ? [...players] : null, nextDay });
+  res.json({ players: players ? [...players] : null, matchups, nextDay });
+}));
+
+app.get("/api/projected/:sport", ah(async (req, res) => {
+  const sport = req.params.sport.toUpperCase();
+  const sportPlayers = PLAYERS.filter((p) => p.sp === sport).map((p) => p.n);
+  if (!sportPlayers.length) return res.json({});
+  res.json(await scoring.projectedScores(pool, sportPlayers));
 }));
 
 // debug: show raw ESPN scoreboard events for a sport (e.g. /api/stats/espn/MLB)

@@ -121,24 +121,36 @@ async function todaysTeams(sport) {
   } catch { return null; }
 }
 
-// return set of POOL player names from teams scheduled today
-async function todaysPoolPlayers(sport) {
+// return pool players from today's games + matchup label per team (e.g. "OKC @ GSW")
+async function todaysSchedule(sport) {
   const pair = LEAGUES[sport];
-  if (!pair) return null;
+  if (!pair) return { players: null, matchups: {} };
   const day = dstr(new Date());
   try {
     const sb = await jget(`https://site.api.espn.com/apis/site/v2/sports/${pair[0]}/${pair[1]}/scoreboard?dates=${day}`);
-    if (!sb.events?.length) return null;
+    if (!sb.events?.length) return { players: null, matchups: {} };
     const names = new Set();
+    const matchups = {};
     for (const ev of sb.events || []) {
-      for (const comp of ev.competitions?.[0]?.competitors || []) {
+      const comps = ev.competitions?.[0]?.competitors || [];
+      const away = comps.find((c) => c.homeAway === "away");
+      const home = comps.find((c) => c.homeAway === "home");
+      const label = away && home
+        ? `${away.team.abbreviation} @ ${home.team.abbreviation}`
+        : comps.map((c) => c.team?.abbreviation).filter(Boolean).join(" vs ");
+      for (const comp of comps) {
         const abbr = comp.team?.abbreviation?.toUpperCase();
-        if (abbr) PLAYERS.filter((p) => p.sp === sport && p.tm === abbr).forEach((p) => names.add(p.n));
+        if (abbr) {
+          matchups[abbr] = label;
+          PLAYERS.filter((p) => p.sp === sport && p.tm === abbr).forEach((p) => names.add(p.n));
+        }
       }
     }
-    return names.size > 0 ? names : null;
-  } catch { return null; }
+    return { players: names.size > 0 ? names : null, matchups };
+  } catch { return { players: null, matchups: {} }; }
 }
+// kept for internal use by server bot
+async function todaysPoolPlayers(sport) { return (await todaysSchedule(sport)).players; }
 
 // find the next calendar date (up to 14 days out) that has games for a sport
 async function nextGameDay(sport) {
@@ -346,4 +358,4 @@ async function seedDemo(pool) {
   console.log("DEMO stats seeded (today + yesterday). Unset DEMO_STATS for real data only.");
 }
 
-module.exports = { pollAll, draftScores, draftScoreDetail, projectedScores, seedDemo, scoreSummary, todaysTeams, todaysPoolPlayers, nextGameDay, RULES, FAMILY, golfPoints, matchPool, buildPoolIndex, norm };
+module.exports = { pollAll, draftScores, draftScoreDetail, projectedScores, seedDemo, scoreSummary, todaysTeams, todaysPoolPlayers, todaysSchedule, nextGameDay, RULES, FAMILY, golfPoints, matchPool, buildPoolIndex, norm };
