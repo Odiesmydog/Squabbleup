@@ -165,6 +165,13 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
 .fab { position: fixed; left: 50%; transform: translateX(-50%); bottom: 16px; width: min(512px, calc(100% - 28px)); z-index: 10; display: flex; gap: 9px; }
 .fab .big { flex: 1; }
 .note { font-size: 12.5px; color: var(--dim); text-align: center; margin-top: 12px; }
+/* install banner */
+.installBanner { position: fixed; bottom: 0; left: 50%; transform: translateX(-50%); width: min(540px,100%); background: var(--panel); border-top: 2px solid var(--raised); padding: 14px 18px calc(14px + env(safe-area-inset-bottom)); z-index: 30; display: flex; align-items: center; gap: 12px; box-shadow: 0 -4px 20px rgba(0,0,0,.4); }
+.installBanner .iBadge { font-size: 36px; flex-shrink: 0; }
+.installBanner .iTxt { flex: 1; font-size: 13.5px; line-height: 1.4; }
+.installBanner .iTxt strong { display: block; font-family: var(--display); font-size: 15px; margin-bottom: 2px; }
+.installBanner .iClose { color: var(--dim); font-size: 20px; padding: 4px 6px; flex-shrink: 0; }
+.installBanner .iBtn { font-family: var(--display); font-weight: 700; font-size: 13px; background: var(--green); color: var(--ink); border-radius: 10px; padding: 8px 14px; box-shadow: 0 3px 0 var(--green-d); white-space: nowrap; }
 /* handshake mode */
 .hsBox { background: var(--panel); border: 2.5px solid var(--gold); border-radius: var(--r); padding: 14px 16px; margin-bottom: 14px; }
 .hsTitle { font-family: var(--display); font-size: 18px; font-weight: 700; margin-bottom: 8px; color: var(--gold); }
@@ -348,6 +355,8 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
     <div class="err" id="friendErr" style="font-size:13px;margin:4px 2px"></div>
     <div class="stepLbl">Your crew</div>
     <div id="friendsList"></div>
+    <div class="stepLbl">Notifications</div>
+    <button class="big flat" id="enablePushBtn" style="margin-bottom:14px">🔔 Enable pick notifications</button>
     <div class="stepLbl">How your account works</div>
     <div class="bCol" style="cursor:default">
       <div class="bPick"><span>No password, no email. This device is your login — your profile, drafts, friends and chats are saved on SquabbleUP's servers under an ID this browser remembers.</span></div>
@@ -605,6 +614,8 @@ $("profSave").addEventListener("click", async () => {
   renderTop();
   if (pendingJoin) { const c = pendingJoin; pendingJoin = null; joinByCode(c); }
   else loadHome();
+  // ask for push permission after first-time setup
+  setTimeout(() => requestPushPermission && requestPushPermission(), 1500);
 });
 $("meChip").addEventListener("click", () => openProfile(false));
 function renderTop() {
@@ -748,6 +759,7 @@ $("joinCodeBtn").addEventListener("click", () => {
 });
 // ================= friends (profile tab) =================
 $("shareCode").addEventListener("click", () => shareText(`Add me on SquabbleUP! My friend code is ${me.friendcode} → ${location.origin}`));
+$("enablePushBtn").addEventListener("click", () => requestPushPermission());
 $("addFriendBtn").addEventListener("click", async () => {
   const code = $("codeIn").value.trim().toUpperCase();
   if (!code) return;
@@ -1271,6 +1283,90 @@ renderTop();
 if (!me) openProfile(true);
 else if (pendingJoin) { const c = pendingJoin; pendingJoin = null; joinByCode(c); }
 else loadHome();
+
+// ================= PWA install + push notifications =================
+const _isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+const _isStandalone = window.navigator.standalone === true || window.matchMedia("(display-mode: standalone)").matches;
+let _deferredInstall = null;
+
+// Android: capture install prompt
+window.addEventListener("beforeinstallprompt", e => {
+  e.preventDefault();
+  _deferredInstall = e;
+  if (!localStorage.getItem("squp_install_dismissed")) _showInstallBanner("android");
+});
+
+// iOS: show instructions if not already installed
+if (_isIOS && !_isStandalone && !localStorage.getItem("squp_install_dismissed")) {
+  _showInstallBanner("ios");
+}
+
+function _showInstallBanner(type) {
+  if ($("installBanner")) return;
+  const ios = type === "ios";
+  const el = document.createElement("div");
+  el.className = "installBanner"; el.id = "installBanner";
+  el.innerHTML = `<div class="iBadge">📲</div>
+    <div class="iTxt"><strong>Add SquabbleUP to your home screen</strong>
+      ${ios ? "Tap <strong>Share ↑</strong> then <strong>Add to Home Screen</strong>" : "Install for instant access — works offline too"}</div>
+    ${ios ? "" : `<button class="iBtn" id="installBtn">Install</button>`}
+    <button class="iClose" id="installClose">✕</button>`;
+  document.body.appendChild(el);
+  $("installClose").addEventListener("click", () => { el.remove(); localStorage.setItem("squp_install_dismissed", "1"); });
+  if (!ios) $("installBtn").addEventListener("click", async () => {
+    if (!_deferredInstall) return;
+    _deferredInstall.prompt();
+    const { outcome } = await _deferredInstall.userChoice;
+    if (outcome === "accepted") { el.remove(); localStorage.setItem("squp_install_dismissed", "1"); }
+    _deferredInstall = null;
+  });
+}
+
+// Push notifications
+async function setupPush() {
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
+  const reg = await navigator.serviceWorker.ready;
+  // Check current permission without prompting yet
+  if (Notification.permission === "denied") return;
+  if (Notification.permission === "default") {
+    // Only request when user is actively doing something (called from requestPushPermission)
+    return;
+  }
+  await _subscribePush(reg);
+}
+
+async function requestPushPermission() {
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
+  if (Notification.permission === "denied") { toast("Notifications blocked — enable in phone settings"); return; }
+  const perm = await Notification.requestPermission();
+  if (perm !== "granted") return;
+  const reg = await navigator.serviceWorker.ready;
+  await _subscribePush(reg);
+  toast("Notifications enabled!");
+}
+
+async function _subscribePush(reg) {
+  if (!me) return;
+  try {
+    const { key } = await api("/api/push/key");
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: _urlBase64ToUint8Array(key),
+    });
+    await api("/api/push/subscribe", { userId: me.id, subscription: sub.toJSON() });
+  } catch (e) { console.warn("push subscribe failed", e); }
+}
+
+function _urlBase64ToUint8Array(b64) {
+  const pad = "=".repeat((4 - b64.length % 4) % 4);
+  const raw = atob((b64 + pad).replace(/-/g, "+").replace(/_/g, "/"));
+  return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+}
+
+// Auto-subscribe if already granted (e.g. reopening installed app)
+setupPush().catch(() => {});
 </script>
+
+<!-- install banner injected by JS -->
 </body>
 </html>

@@ -1,11 +1,16 @@
 // SquabbleUP multiplayer server
-// env: DATABASE_URL (Neon), PORT
+// env: DATABASE_URL (Neon), PORT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY
 const express = require("express");
 const path = require("path");
 const http = require("http");
 const crypto = require("crypto");
 const { WebSocketServer } = require("ws");
 const { Pool } = require("pg");
+const webpush = require("web-push");
+
+const VAPID_PUBLIC  = process.env.VAPID_PUBLIC_KEY  || "BCTL-yEHc54ilFkaUMTIAwweXFGanucsmCeSwS9LcJeCnPktpBtdtcNEdjiWUZEvY8Cjbqt5ynwqNDSJSuHp9Mk";
+const VAPID_PRIVATE = process.env.VAPID_PRIVATE_KEY || "G1RcF5nesMLPFCo4cQrx-D6tifzPrFGZTi-NWSCKD4A";
+webpush.setVapidDetails("mailto:twicebrian@gmail.com", VAPID_PUBLIC, VAPID_PRIVATE);
 
 const app = express();
 app.use(express.json({ limit: "200kb" }));
@@ -42,6 +47,14 @@ async function initDb() {
       from_name TEXT, created TIMESTAMPTZ DEFAULT now(),
       UNIQUE (draft_code, to_user)
     );
+    CREATE TABLE IF NOT EXISTS push_subscriptions (
+      id BIGSERIAL PRIMARY KEY,
+      user_id UUID NOT NULL,
+      endpoint TEXT NOT NULL,
+      subscription JSONB NOT NULL,
+      created TIMESTAMPTZ DEFAULT now(),
+      UNIQUE (user_id, endpoint)
+    );
   `);
   console.log("db ready");
 }
@@ -73,12 +86,47 @@ wss.on("connection", (ws, req) => {
 async function broadcast(code) {
   const r = await pool.query("SELECT state FROM drafts WHERE code=$1", [code]);
   if (!r.rows[0]) return;
-  const msg = JSON.stringify({ type: "state", state: r.rows[0].state });
+  const st = r.rows[0].state;
+  const msg = JSON.stringify({ type: "state", state: st });
   for (const ws of subs.get(code) || []) {
     if (ws.readyState === 1) ws.send(msg);
   }
-  scheduleBot(code, r.rows[0].state);
+  scheduleBot(code, st);
+  // push notification to picker if draft is active
+  if (st.status === "active" && !isDone(st)) {
+    const seat = st.seats[pickerIndex(st)];
+    if (seat?.userId && !seat.bot) {
+      notifyPick(seat.userId, st.name, code).catch(() => {});
+    }
+  }
 }
+
+async function notifyPick(userId, draftName, code) {
+  const rows = (await pool.query("SELECT subscription FROM push_subscriptions WHERE user_id=$1", [userId])).rows;
+  for (const row of rows) {
+    webpush.sendNotification(row.subscription, JSON.stringify({
+      title: "Your pick! ⚡",
+      body: `It's your turn in ${draftName}`,
+      data: { draftCode: code },
+    })).catch(async (err) => {
+      if (err.statusCode === 410 || err.statusCode === 404) {
+        await pool.query("DELETE FROM push_subscriptions WHERE user_id=$1 AND endpoint=$2", [userId, row.subscription.endpoint]);
+      }
+    });
+  }
+}
+
+app.get("/api/push/key", (req, res) => res.json({ key: VAPID_PUBLIC }));
+
+app.post("/api/push/subscribe", ah(async (req, res) => {
+  const { userId, subscription } = req.body;
+  if (!userId || !subscription?.endpoint) return res.status(400).json({ error: "bad request" });
+  await pool.query(
+    "INSERT INTO push_subscriptions (user_id, endpoint, subscription) VALUES ($1,$2,$3) ON CONFLICT (user_id, endpoint) DO UPDATE SET subscription=$3",
+    [userId, subscription.endpoint, JSON.stringify(subscription)]
+  );
+  res.json({ ok: true });
+}));
 
 // ---------------- bot picks (server-side) ----------------
 const PLAYERS = require("./public/players-data.js");
