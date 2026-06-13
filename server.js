@@ -225,6 +225,19 @@ app.post("/api/friends/add", ah(async (req, res) => {
   res.json(f);
 }));
 
+// update own friend code
+app.post("/api/user/friendcode", ah(async (req, res) => {
+  const { id, newCode } = req.body;
+  const nc = String(newCode || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 12);
+  if (nc.length < 3) return res.status(400).json({ error: "Code must be 3–12 letters/numbers" });
+  const u = (await pool.query("SELECT id FROM users WHERE id=$1", [id])).rows[0];
+  if (!u) return res.status(404).json({ error: "User not found" });
+  const taken = (await pool.query("SELECT id FROM users WHERE friendcode=$1 AND id!=$2", [nc, id])).rows[0];
+  if (taken) return res.status(409).json({ error: "That code is already taken" });
+  await pool.query("UPDATE users SET friendcode=$1 WHERE id=$2", [nc, id]);
+  res.json({ friendcode: nc });
+}));
+
 // create draft (lobby)
 app.post("/api/draft/create", ah(async (req, res) => {
   const { hostId, sport, rounds, name, handshake } = req.body;
