@@ -29,7 +29,7 @@ button { font-family: inherit; cursor: pointer; border: none; color: inherit; ba
 input { font-family: inherit; }
 :focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
-.app { max-width: 540px; margin: 0 auto; padding: 14px 14px 132px; min-height: 100vh; }
+.app { max-width: 540px; margin: 0 auto; padding: calc(14px + env(safe-area-inset-top)) 14px calc(132px + env(safe-area-inset-bottom)); min-height: 100vh; }
 
 .big { display: block; width: 100%; font-family: var(--display); font-weight: 700; font-size: 20px; padding: 15px; border-radius: var(--r); background: var(--green); color: var(--ink); box-shadow: 0 5px 0 var(--green-d); transition: transform .06s, box-shadow .06s; text-align: center; }
 .big:active { transform: translateY(4px); box-shadow: 0 1px 0 var(--green-d); }
@@ -384,7 +384,7 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
       <button class="choice sel" data-rd="3"><span class="e">⚡</span>Quick · 3</button>
       <button class="choice" data-rd="6"><span class="e">🏆</span>Full · 6</button>
     </div>
-    <div class="stepLbl">3 · 🤝 Handshake bet? <span style="color:var(--dim);font-weight:400">(optional)</span></div>
+    <div style="margin:18px 0 8px;font-family:var(--display);font-size:20px;font-weight:700;color:var(--gold);letter-spacing:.5px">🤝 HANDSHAKE MODE <span style="color:var(--dim);font-size:13px;font-weight:600;letter-spacing:0">(optional)</span></div>
     <input id="hsStakeIn" maxlength="40" placeholder='e.g. "$10 each" or "winner buys drinks"' style="width:100%;box-sizing:border-box" />
     <p class="note" style="margin-top:5px">Everyone must shake on it before the draft can start.</p>
     <button class="big gold" id="createDraft" style="margin-top:16px">Create draft room</button>
@@ -411,7 +411,7 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
     </div>
     <button class="big" id="shareDraft">📤 Invite friends — share link</button>
     <div id="handshakeBox" style="display:none">
-      <div class="stepLbl" style="margin-top:14px">🤝 Handshake bet</div>
+      <div style="margin:14px 0 8px;font-family:var(--display);font-size:20px;font-weight:700;color:var(--gold);letter-spacing:.5px">🤝 HANDSHAKE MODE</div>
       <div class="hsBox">
         <div class="hsTitle" id="hsStakeLabel"></div>
         <div class="hsRoll" id="hsRoll"></div>
