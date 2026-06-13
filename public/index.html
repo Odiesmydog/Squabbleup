@@ -179,13 +179,15 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
 .muP .pp { grid-row: 1; grid-column: 2; font-weight: 800; color: var(--green); text-align: right; align-self: center; white-space: nowrap; }
 .scoreNote { font-size: 11.5px; color: var(--dim); text-align: center; margin: 10px 0; }
 .noGamesBox { background: var(--raised); border-left: 3px solid var(--gold); border-radius: 8px; padding: 10px 13px; font-size: 12.5px; color: var(--dim); margin: 8px 0; line-height: 1.5; }
-.ruleGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+.ruleGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; align-items: start; }
 .ruleCard { background: var(--panel); border-radius: var(--r); padding: 12px; box-shadow: 0 3px 0 #232120; }
-.ruleHead { font-family: var(--display); font-weight: 700; font-size: 13px; margin-bottom: 8px; }
-.ruleLine { display: flex; justify-content: space-between; font-size: 12px; padding: 3px 0; border-bottom: 1px solid var(--raised); color: var(--dim); }
+.ruleHead { font-family: var(--display); font-weight: 700; font-size: 13px; padding-bottom: 7px; border-bottom: 1px solid var(--line); margin-bottom: 6px; }
+.ruleLine { display: flex; justify-content: space-between; align-items: center; font-size: 11.5px; padding: 4px 0; border-bottom: 1px solid var(--raised); color: var(--dim); }
 .ruleLine:last-child { border-bottom: none; }
-.ruleLine span:last-child { font-weight: 700; color: var(--green); white-space: nowrap; margin-left: 6px; }
+.ruleLine span:first-child { flex: 1; min-width: 0; }
+.ruleLine span:last-child { font-weight: 800; font-size: 13px; color: var(--green); white-space: nowrap; margin-left: 8px; }
 .ruleLine.bad span:last-child { color: #ff6b6b; }
+.ruleNote { font-size: 11px; color: var(--dim); margin-top: 7px; line-height: 1.4; }
 .cardX { background: var(--raised); color: var(--dim); border-radius: 8px; width: 30px; height: 30px; font-size: 14px; flex-shrink: 0; box-shadow: 0 2px 0 #2e2b28; }
 .joinRow { display: flex; gap: 8px; margin: 0 0 14px; }
 .joinRow input { flex: 1; background: var(--panel); border: 2px solid var(--line); border-radius: 12px; padding: 11px 14px; color: var(--text); font-size: 16px; font-weight: 800; text-transform: uppercase; letter-spacing: 2px; min-width: 0; }
@@ -286,7 +288,7 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
       <div class="ruleCard">
         <div class="ruleHead">🎾 Tennis</div>
         <div class="ruleLine"><span>Match win</span><span>+10</span></div>
-        <div class="ruleLine" style="color:var(--dim);font-size:11px"><span colspan="2">Points stack — win 3 matches in a day and your player scores 30.</span></div>
+        <div class="ruleNote">Wins stack — 3 wins in a day = 30 pts</div>
       </div>
     </div>
   </section>
