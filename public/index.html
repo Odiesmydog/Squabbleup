@@ -243,7 +243,7 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
     <p class="sub">Start a squabble or jump into one.</p>
     <div id="inviteList"></div>
     <div class="joinRow">
-      <input id="joinCodeIn" placeholder="ROOM CODE" maxlength="6" />
+      <input id="joinCodeIn" placeholder="ROOM CODE" maxlength="12" />
       <button class="mini green" id="joinCodeBtn">Join</button>
     </div>
     <button class="big" id="newDraft" style="margin-bottom:10px">+ New online Squabble</button>
@@ -363,7 +363,7 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
     <button class="big flat" id="shareCode" style="margin-bottom:14px">📤 Share my code</button>
     <div class="stepLbl">Add a friend</div>
     <div class="addRow">
-      <input id="codeIn" placeholder="Enter their code" maxlength="6" style="text-transform:uppercase" />
+      <input id="codeIn" placeholder="Enter their code" maxlength="12" style="text-transform:uppercase" />
       <button class="mini green" id="addFriendBtn">Add</button>
     </div>
     <div class="err" id="friendErr" style="font-size:13px;margin:4px 2px"></div>
@@ -646,9 +646,13 @@ async function gotoTab(t) {
   document.querySelectorAll(".bnav button").forEach((b) => b.classList.toggle("on", b.getAttribute("data-bt") === t));
   $("bnav").style.display = "flex";
   show(TABSCR[t]);
-  try { homeData = await api("/api/me/" + me.id); } catch { return; }
-  renderTabs();
-  if (t === "profile") renderProfileTab();
+  // Show stale data instantly, then refresh in background
+  if (homeData) { renderTabs(); if (t === "profile") renderProfileTab(); }
+  try {
+    homeData = await api("/api/me/" + me.id);
+    renderTabs();
+    if (t === "profile") renderProfileTab();
+  } catch { return; }
 }
 $("bnav").addEventListener("click", (e) => {
   const t = e.target.closest("[data-bt]")?.getAttribute("data-bt");
@@ -768,6 +772,7 @@ async function _doFcRecode() {
   try {
     const { friendcode } = await api("/api/user/friendcode", { id: me.id, newCode: nc });
     me.friendcode = friendcode;
+    localStorage.setItem("squp_me", JSON.stringify(me));
     $("myCode").textContent = friendcode;
     _hideFcEdit();
     toast(`Friend code updated to ${friendcode}`);
@@ -799,8 +804,8 @@ document.body.addEventListener("click", async (e) => {
   if (join) { joinByCode(join); return; }
 });
 $("joinCodeBtn").addEventListener("click", () => {
-  const c = $("joinCodeIn").value.trim();
-  if (c.length === 6) { $("joinCodeIn").value = ""; joinByCode(c); }
+  const c = $("joinCodeIn").value.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (c.length >= 3) { $("joinCodeIn").value = ""; joinByCode(c); }
 });
 // ================= friends (profile tab) =================
 $("shareCode").addEventListener("click", () => shareText(`Add me on SquabbleUP! My friend code is ${me.friendcode} → ${location.origin}`));
@@ -832,20 +837,29 @@ $("roundGrid").addEventListener("click", (e) => {
   document.querySelectorAll("#roundGrid .choice").forEach((c) => c.classList.remove("sel"));
   b.classList.add("sel"); wizRounds = +b.getAttribute("data-rd");
 });
-$("createDraft").addEventListener("click", async () => {
-  const stake = $("hsStakeIn").value.trim();
-  const { code } = await api("/api/draft/create", {
-    hostId: me.id, sport: wizSport, rounds: wizRounds,
-    name: SPORTNAMES[wizSport] + " squabble",
-    handshake: stake ? { stake, agreed: [] } : null,
-  });
-  $("hsStakeIn").value = "";
-  joinByCode(code);
+$("createDraft").addEventListener("click", async (e) => {
+  const btn = e.currentTarget;
+  if (btn.disabled) return;
+  btn.disabled = true;
+  try {
+    const stake = $("hsStakeIn").value.trim();
+    const { code } = await api("/api/draft/create", {
+      hostId: me.id, sport: wizSport, rounds: wizRounds,
+      name: SPORTNAMES[wizSport] + " squabble",
+      handshake: stake ? { stake, agreed: [] } : null,
+    });
+    $("hsStakeIn").value = "";
+    joinByCode(code);
+  } finally {
+    btn.disabled = false;
+  }
 });
 
 // ================= draft connection =================
 let draft = null, ws = null, pollT = null, posFilter = "All", q = "", activeTab = "pick", unreadChat = false, lastChatLen = 0;
 let todaysPlayers = null, nextGameDay = null, todayMatchups = {}, draftRoomProj = {}, playerStatus = {}, todaysRoster = [];
+// Precomputed rank map — built once from static PLAYERS list
+const RANK_MAP = new Map(PLAYERS.map((p) => [p.n, p.r]));
 async function fetchTodaysTeams(sport) {
   try {
     const [sched, enriched] = await Promise.all([
@@ -998,12 +1012,10 @@ $("invClose").addEventListener("click", () => $("invModal").classList.remove("on
 
 // ================= draft room =================
 const OUT_STATUS = new Set(["O", "IR"]);
-const _rankMap = () => new Map(PLAYERS.map((p) => [p.n, p.r]));
 function availPlayers() {
   const taken = new Set(draft.picks.map((p) => p.player));
   // use live ESPN roster when available (full team rosters); fall back to static list
   const pool = todaysRoster.length > 0 ? todaysRoster : PLAYERS.filter((p) => draft.sport === "ALL" || p.sp === draft.sport);
-  const ranks = _rankMap();
   return pool
     .filter((p) => !taken.has(p.n))
     .filter((p) => draft.sport === "ALL" || p.sp === draft.sport)
@@ -1013,7 +1025,7 @@ function availPlayers() {
     .sort((a, b) => {
       const aOut = OUT_STATUS.has(playerStatus[a.n]?.status) ? 1 : 0;
       const bOut = OUT_STATUS.has(playerStatus[b.n]?.status) ? 1 : 0;
-      return aOut !== bOut ? aOut - bOut : (ranks.get(a.n) || 999) - (ranks.get(b.n) || 999);
+      return aOut !== bOut ? aOut - bOut : (RANK_MAP.get(a.n) || 999) - (RANK_MAP.get(b.n) || 999);
     });
 }
 function renderRoom() {
@@ -1065,7 +1077,8 @@ function renderRoom() {
   if (activeTab === "board") $("tabBoard").innerHTML = draft.seats.map(rosterHtml).join("");
 }
 $("posFilters").addEventListener("click", (e) => { const p = e.target.getAttribute("data-pos"); if (p) { posFilter = p; renderRoom(); } });
-$("pSearch").addEventListener("input", (e) => { q = e.target.value.toLowerCase(); renderRoom(); });
+let _searchT;
+$("pSearch").addEventListener("input", (e) => { clearTimeout(_searchT); _searchT = setTimeout(() => { q = e.target.value.toLowerCase(); renderRoom(); }, 150); });
 $("pool").addEventListener("click", async (e) => {
   const name = e.target.getAttribute("data-pick");
   if (name) {
@@ -1219,17 +1232,24 @@ function rosterHtml(s) {
   </div>`;
 }
 function renderDone() {
-  if (!$("scrDone").classList.contains("on")) show("scrDone");
   const scoringLive = draft.scoring && Date.now() < draft.scoring.end;
+  const entering = !$("scrDone").classList.contains("on");
+  if (entering) {
+    show("scrDone");
+    if (scoresT) { clearInterval(scoresT); scoresT = null; }
+    fetchScores().then(() => renderMatchup("doneStandings")).catch(() => {});
+    if (scoringLive && !draft.local) {
+      scoresT = setInterval(async () => {
+        if (!$("scrDone").classList.contains("on")) { clearInterval(scoresT); scoresT = null; return; }
+        await fetchScores(); renderMatchup("doneStandings");
+      }, 60000);
+    }
+  } else {
+    renderMatchup("doneStandings");
+  }
   $("doneTitle").textContent = scoringLive ? "Matchup 🔥" : "Final results 🏁";
   $("doneSub").textContent = `${draft.name} · ${draft.seats.length} drafters · ${draft.rounds} rounds`;
   $("doneScoreNote").textContent = "";
-  fetchScores().then(() => renderMatchup("doneStandings"));
-  if (scoresT) clearInterval(scoresT);
-  if (scoringLive && !draft.local) scoresT = setInterval(async () => {
-    if (!$("scrDone").classList.contains("on")) { clearInterval(scoresT); return; }
-    await fetchScores(); renderMatchup("doneStandings");
-  }, 60000);
 }
 
 // ================= pass & play (local) =================
@@ -1315,8 +1335,7 @@ function localBotLoop() {
     if (!cur.bot) return;
     const taken = new Set(draft.picks.map((p) => p.player));
     const pool = todaysRoster.length > 0 ? todaysRoster : PLAYERS.filter((p) => draft.sport === "ALL" || p.sp === draft.sport);
-    const ranks = _rankMap();
-    const avail = pool.filter((p) => !taken.has(p.n)).filter((p) => draft.sport === "ALL" || p.sp === draft.sport).filter((p) => !todaysPlayers || todaysPlayers.has(p.n)).sort((a, b) => (ranks.get(a.n) || 999) - (ranks.get(b.n) || 999)).slice(0, 5);
+    const avail = pool.filter((p) => !taken.has(p.n)).filter((p) => draft.sport === "ALL" || p.sp === draft.sport).filter((p) => !todaysPlayers || todaysPlayers.has(p.n)).sort((a, b) => (RANK_MAP.get(a.n) || 999) - (RANK_MAP.get(b.n) || 999)).slice(0, 5);
     const pick = avail[Math.floor(Math.random() * avail.length)];
     if (pick) localPick(pick.n);
   }, 1100);

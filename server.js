@@ -16,7 +16,13 @@ const app = express();
 app.use(express.json({ limit: "200kb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: process.env.PGSSL === "off" ? false : { rejectUnauthorized: false } });
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.PGSSL === "off" ? false : { rejectUnauthorized: false },
+  max: 20,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 5000,
+});
 
 // ---------------- db ----------------
 async function initDb() {
@@ -55,6 +61,11 @@ async function initDb() {
       created TIMESTAMPTZ DEFAULT now(),
       UNIQUE (user_id, endpoint)
     );
+    CREATE INDEX IF NOT EXISTS idx_drafts_participants ON drafts USING GIN(participants);
+    CREATE INDEX IF NOT EXISTS idx_push_subs_user ON push_subscriptions(user_id);
+    CREATE INDEX IF NOT EXISTS idx_player_scores_sport_day ON player_scores(sport, day);
+    CREATE INDEX IF NOT EXISTS idx_friendships_b ON friendships(b);
+    CREATE INDEX IF NOT EXISTS idx_invites_to_user ON invites(to_user);
   `);
   console.log("db ready");
 }
@@ -74,7 +85,19 @@ const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: "/ws" });
 const subs = new Map(); // draftCode -> Set<ws>
 
+// Heartbeat: detect dead connections and terminate them
+const heartbeat = setInterval(() => {
+  wss.clients.forEach((ws) => {
+    if (!ws.isAlive) return ws.terminate();
+    ws.isAlive = false;
+    ws.ping();
+  });
+}, 30000);
+wss.on("close", () => clearInterval(heartbeat));
+
 wss.on("connection", (ws, req) => {
+  ws.isAlive = true;
+  ws.on("pong", () => { ws.isAlive = true; });
   const url = new URL(req.url, "http://x");
   const code = (url.searchParams.get("draft") || "").toUpperCase();
   if (!code) return ws.close();
@@ -82,6 +105,8 @@ wss.on("connection", (ws, req) => {
   subs.get(code).add(ws);
   ws.on("close", () => subs.get(code)?.delete(ws));
 });
+
+const lastNotifiedPick = new Map(); // code -> pick count when last notified
 
 async function broadcast(code) {
   const r = await pool.query("SELECT state FROM drafts WHERE code=$1", [code]);
@@ -92,28 +117,34 @@ async function broadcast(code) {
     if (ws.readyState === 1) ws.send(msg);
   }
   scheduleBot(code, st);
-  // push notification to picker if draft is active
+  // push notification only when the picker changes (pick count increases)
   if (st.status === "active" && !isDone(st)) {
     const seat = st.seats[pickerIndex(st)];
     if (seat?.userId && !seat.bot) {
-      notifyPick(seat.userId, st.name, code).catch(() => {});
+      const lastLen = lastNotifiedPick.get(code) ?? -1;
+      if (st.picks.length !== lastLen) {
+        lastNotifiedPick.set(code, st.picks.length);
+        notifyPick(seat.userId, st.name, code).catch(() => {});
+      }
     }
   }
 }
 
 async function notifyPick(userId, draftName, code) {
   const rows = (await pool.query("SELECT subscription FROM push_subscriptions WHERE user_id=$1", [userId])).rows;
-  for (const row of rows) {
-    webpush.sendNotification(row.subscription, JSON.stringify({
-      title: "Your pick! ⚡",
-      body: `It's your turn in ${draftName}`,
-      data: { draftCode: code },
-    })).catch(async (err) => {
+  await Promise.all(rows.map(async (row) => {
+    try {
+      await webpush.sendNotification(row.subscription, JSON.stringify({
+        title: "Your pick! ⚡",
+        body: `It's your turn in ${draftName}`,
+        data: { draftCode: code },
+      }));
+    } catch (err) {
       if (err.statusCode === 410 || err.statusCode === 404) {
         await pool.query("DELETE FROM push_subscriptions WHERE user_id=$1 AND endpoint=$2", [userId, row.subscription.endpoint]);
       }
-    });
-  }
+    }
+  }));
 }
 
 
@@ -194,25 +225,26 @@ app.post("/api/register", ah(async (req, res) => {
   res.json(r.rows[0]);
 }));
 
-// me: profile + friends + invites + my drafts
+// me: profile + friends + invites + my drafts (parallelized)
 app.get("/api/me/:id", ah(async (req, res) => {
   const id = req.params.id;
-  const u = (await pool.query("SELECT * FROM users WHERE id=$1", [id])).rows[0];
+  const [uRes, friendRes, inviteRes, draftRes] = await Promise.all([
+    pool.query("SELECT * FROM users WHERE id=$1", [id]),
+    pool.query(`SELECT u.id, u.name, u.av, u.img, u.friendcode FROM friendships f JOIN users u ON u.id=f.b WHERE f.a=$1 ORDER BY u.name`, [id]),
+    pool.query(`SELECT i.draft_code, i.from_name, d.state->>'name' AS draft_name FROM invites i JOIN drafts d ON d.code=i.draft_code WHERE i.to_user=$1 AND (d.state->>'status') = 'lobby' ORDER BY i.created DESC`, [id]),
+    pool.query(`SELECT code, state FROM drafts WHERE $1 = ANY(participants) ORDER BY updated DESC LIMIT 25`, [id]),
+  ]);
+  const u = uRes.rows[0];
   if (!u) return res.status(404).json({ error: "not found" });
-  const friends = (await pool.query(
-    `SELECT u.id, u.name, u.av, u.img, u.friendcode FROM friendships f JOIN users u ON u.id=f.b WHERE f.a=$1 ORDER BY u.name`, [id])).rows;
-  const invites = (await pool.query(
-    `SELECT i.draft_code, i.from_name, d.state->>'name' AS draft_name FROM invites i JOIN drafts d ON d.code=i.draft_code
-     WHERE i.to_user=$1 AND (d.state->>'status') = 'lobby' ORDER BY i.created DESC`, [id])).rows;
-  const drafts = (await pool.query(
-    `SELECT code, state FROM drafts WHERE $1 = ANY(participants) ORDER BY updated DESC LIMIT 25`, [id])).rows
-    .map((d) => ({ code: d.code, name: d.state.name, status: d.state.status, sport: d.state.sport,
-      rounds: d.state.rounds, seats: d.state.seats.map((s) => ({ name: s.name, av: s.av, img: s.img })),
-      turn: d.state.status === "active" ? d.state.seats[pickerIndex(d.state)].name : null,
-      archived: (d.state.archivedBy || []).includes(id),
-      scoringEnd: d.state.scoring ? d.state.scoring.end : null,
-      handshake: d.state.handshake ? { stake: d.state.handshake.stake } : null }));
-  res.json({ user: u, friends, invites, drafts });
+  const drafts = draftRes.rows.map((d) => ({
+    code: d.code, name: d.state.name, status: d.state.status, sport: d.state.sport,
+    rounds: d.state.rounds, seats: d.state.seats.map((s) => ({ name: s.name, av: s.av, img: s.img })),
+    turn: d.state.status === "active" ? d.state.seats[pickerIndex(d.state)].name : null,
+    archived: (d.state.archivedBy || []).includes(id),
+    scoringEnd: d.state.scoring ? d.state.scoring.end : null,
+    handshake: d.state.handshake ? { stake: d.state.handshake.stake } : null,
+  }));
+  res.json({ user: u, friends: friendRes.rows, invites: inviteRes.rows, drafts });
 }));
 
 // add friend by friendcode (mutual)
@@ -337,7 +369,7 @@ async function hostAction(req, res, fn) {
   const err = fn(st);
   if (err) return res.status(400).json({ error: err });
   await pool.query("UPDATE drafts SET state=$1, updated=now() WHERE code=$2", [st, code]);
-  broadcast(code);
+  broadcast(code).catch(console.error);
   res.json(st);
 }
 const BOTNAMES = ["RoboRick", "DraftDroid", "SnakeBot", "AutoAndy", "ChipChip", "BeepBoop", "Circuit Sam"];
@@ -404,14 +436,6 @@ app.post("/api/draft/:code/archive", ah(async (req, res) => {
   else if (!st.archivedBy.includes(userId)) st.archivedBy.push(userId);
   await pool.query("UPDATE drafts SET state=$1, updated=now() WHERE code=$2", [st, code]);
   res.json(st);
-}));
-
-// debug: how many rows in player_scores + trigger a fresh poll
-app.get("/api/stats/debug", ah(async (req, res) => {
-  const count = (await pool.query("SELECT COUNT(*) FROM player_scores")).rows[0].count;
-  const recent = (await pool.query("SELECT sport, player, pts, line, day FROM player_scores ORDER BY updated DESC LIMIT 10")).rows;
-  scoring.pollAll(pool).catch((e) => console.error("manual poll", e.message));
-  res.json({ rows: +count, recent, pollTriggered: true });
 }));
 
 // projected scores for players in a finished draft (matchup view)
