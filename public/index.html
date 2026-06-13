@@ -52,7 +52,7 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
 .stepLbl { font-family: var(--display); font-size: 13px; color: var(--gold); font-weight: 600; letter-spacing: 1px; text-transform: uppercase; margin: 16px 0 8px; }
 
 .dCard { background: var(--panel); border-radius: var(--r); padding: 13px 15px; margin-bottom: 10px; display: flex; align-items: center; gap: 12px; box-shadow: 0 4px 0 #232120; cursor: pointer; }
-.dCard:active { transform: translateY(2px); box-shadow: 0 2px 0 #232120; }
+.dCard:active:not(:has(.cardX:active)) { transform: translateY(2px); box-shadow: 0 2px 0 #232120; }
 .dCard .info { flex: 1; min-width: 0; }
 .dCard .nm { font-family: var(--display); font-weight: 600; font-size: 16px; }
 .dCard .st { font-size: 12.5px; color: var(--dim); }
@@ -190,7 +190,8 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
 .ruleLine span:last-child { font-weight: 800; font-size: 13px; color: var(--green); white-space: nowrap; margin-left: 8px; }
 .ruleLine.bad span:last-child { color: #ff6b6b; }
 .ruleNote { font-size: 11px; color: var(--dim); margin-top: 7px; line-height: 1.4; }
-.cardX { background: var(--raised); color: var(--dim); border-radius: 8px; width: 30px; height: 30px; font-size: 14px; flex-shrink: 0; box-shadow: 0 2px 0 #2e2b28; }
+.cardX { background: transparent; color: var(--dim); border-radius: 10px; width: 44px; height: 44px; font-size: 18px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; margin: -6px -8px -6px 0; transition: background 0.12s, color 0.12s; }
+.cardX:active { background: rgba(255,80,80,0.18); color: #ff6b6b; }
 .pDetailRow { display: flex; justify-content: space-between; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--raised); }
 .pDetailRow:last-child { border-bottom: none; }
 .pDetailLbl { font-size: 11px; font-weight: 700; color: var(--dim); text-transform: uppercase; letter-spacing: 0.5px; }
@@ -601,9 +602,9 @@ function dCardHtml(d, opts = {}) {
   return `<div class="dCard" data-join="${d.code}">
     <div class="avStack">${d.seats.slice(0, 4).map((x) => avHtml(x)).join("")}</div>
     <div class="info"><div class="nm">${esc(d.name)}</div><div class="st ${d.status !== "done" || (d.scoringEnd && Date.now() < d.scoringEnd) ? "go" : ""}">${st}</div></div>
-    ${opts.close ? `<button class="cardX" data-arch="${d.code}">✕</button>` : ""}
-    ${opts.leave ? `<button class="cardX" data-leave="${d.code}" title="Leave lobby">✕</button>` : ""}
-    ${opts.reopen ? `<button class="cardX" data-unarch="${d.code}" title="Reopen">↩</button>` : (!opts.close && !opts.leave ? `<span style="font-size:18px">▶</span>` : "")}
+    ${opts.close ? `<button class="cardX" data-arch="${d.code}" onclick="event.stopPropagation()">✕</button>` : ""}
+    ${opts.leave ? `<button class="cardX" data-leave="${d.code}" onclick="event.stopPropagation()">✕</button>` : ""}
+    ${opts.reopen ? `<button class="cardX" data-unarch="${d.code}" onclick="event.stopPropagation()">↩</button>` : (!opts.close && !opts.leave ? `<span style="font-size:18px">▶</span>` : "")}
   </div>`;
 }
 function localCardHtml(d, i, showClose = false) {
@@ -612,7 +613,7 @@ function localCardHtml(d, i, showClose = false) {
     <div class="avStack">${d.seats.slice(0, 4).map((x) => avHtml(x)).join("")}</div>
     <div class="info"><div class="nm">${esc(d.name)} <span class="localTag">PASS & PLAY</span></div>
     <div class="st">${done ? "Finished" : "In progress — " + esc(d.seats[lpIdx(d)].name) + "'s pick"}</div></div>
-    ${showClose ? `<button class="cardX" data-local-close="${i}" title="Remove">✕</button>` : `<span style="font-size:18px">▶</span>`}
+    ${showClose ? `<button class="cardX" data-local-close="${i}" onclick="event.stopPropagation()">✕</button>` : `<span style="font-size:18px">▶</span>`}
   </div>`;
 }
 function renderTabs() {
