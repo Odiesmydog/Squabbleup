@@ -195,6 +195,26 @@ app.post("/api/draft/create", ah(async (req, res) => {
   res.json({ code });
 }));
 
+app.post("/api/draft/:code/recode", ah(async (req, res) => {
+  const oldCode = req.params.code.toUpperCase();
+  const { hostId, newCode } = req.body;
+  const nc = String(newCode || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 12);
+  if (nc.length < 3) return res.status(400).json({ error: "Code must be 3–12 letters/numbers" });
+  const r = await pool.query("SELECT state FROM drafts WHERE code=$1", [oldCode]);
+  if (!r.rows.length) return res.status(404).json({ error: "Draft not found" });
+  const st = r.rows[0].state;
+  if (st.hostId !== hostId) return res.status(403).json({ error: "Host only" });
+  if (st.status !== "lobby") return res.status(400).json({ error: "Can only change code in lobby" });
+  const exists = await pool.query("SELECT 1 FROM drafts WHERE code=$1", [nc]);
+  if (exists.rows.length) return res.status(409).json({ error: "That code is already taken" });
+  st.code = nc;
+  await pool.query("UPDATE drafts SET code=$1, state=$2 WHERE code=$3", [nc, JSON.stringify(st), oldCode]);
+  await pool.query("UPDATE invites SET draft_code=$1 WHERE draft_code=$2", [nc, oldCode]);
+  const wsSet = subs.get(oldCode);
+  if (wsSet) { subs.set(nc, wsSet); subs.delete(oldCode); }
+  res.json({ code: nc });
+}));
+
 app.get("/api/draft/:code", ah(async (req, res) => {
   const r = await pool.query("SELECT state FROM drafts WHERE code=$1", [req.params.code.toUpperCase()]);
   if (!r.rows[0]) return res.status(404).json({ error: "Draft not found" });

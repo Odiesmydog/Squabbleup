@@ -359,9 +359,7 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
       <button class="choice sel" data-rd="3"><span class="e">⚡</span>Quick · 3</button>
       <button class="choice" data-rd="6"><span class="e">🏆</span>Full · 6</button>
     </div>
-    <div class="stepLbl">3 · Room name <span style="color:var(--dim);font-weight:400">(optional)</span></div>
-    <input id="draftNameIn" maxlength="32" placeholder="e.g. NBA Finals Squabble" style="width:100%;box-sizing:border-box;margin-bottom:4px" />
-    <button class="big gold" id="createDraft" style="margin-top:12px">Create draft room</button>
+    <button class="big gold" id="createDraft" style="margin-top:16px">Create draft room</button>
     <p class="note">You'll get a room code + link to send your friends. Up to 8 drafters.</p>
   </section>
 
@@ -369,7 +367,20 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
   <section class="screen" id="scrLobby">
     <button class="mini" data-nav="home">‹ My drafts</button>
     <h1 class="title" id="lobbyTitle">Lobby</h1>
-    <div class="codeBox"><div class="l">ROOM CODE</div><div class="c" id="roomCode">······</div></div>
+    <div class="codeBox">
+      <div class="l">ROOM CODE</div>
+      <div id="codeDisplay" style="display:flex;align-items:center;justify-content:center;gap:10px">
+        <div class="c" id="roomCode">······</div>
+        <button id="codeEditBtn" title="Edit code" style="display:none;background:none;border:none;color:var(--dim);font-size:17px;cursor:pointer;padding:0;line-height:1">✏️</button>
+      </div>
+      <div id="codeEditArea" style="display:none">
+        <input id="codeEditIn" maxlength="12" placeholder="MYCODE" style="text-align:center;font-family:var(--display);font-size:26px;font-weight:700;letter-spacing:5px;text-transform:uppercase;width:180px;margin:4px 0" />
+        <div style="display:flex;gap:8px;justify-content:center;margin-top:8px">
+          <button class="mini green" id="codeEditOk">Save</button>
+          <button class="mini" id="codeEditCancel">Cancel</button>
+        </div>
+      </div>
+    </div>
     <button class="big" id="shareDraft">📤 Invite friends — share link</button>
     <div class="stepLbl">In the room <span id="seatCount"></span></div>
     <div id="lobbySeats"></div>
@@ -467,8 +478,6 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
       <button class="choice sel" data-rd="3"><span class="e">⚡</span>Quick · 3</button>
       <button class="choice" data-rd="6"><span class="e">🏆</span>Full · 6</button>
     </div>
-    <div class="lbl">Room name <span style="color:var(--dim);font-weight:400">(optional)</span></div>
-    <input id="localDraftName" maxlength="32" placeholder="e.g. Sunday Night Squabble" style="width:100%;box-sizing:border-box;margin-bottom:10px" />
     <div class="lbl">Who's playing? (you're in)</div>
     <div id="localSeats"></div>
     <div class="addRow">
@@ -730,12 +739,10 @@ $("roundGrid").addEventListener("click", (e) => {
   b.classList.add("sel"); wizRounds = +b.getAttribute("data-rd");
 });
 $("createDraft").addEventListener("click", async () => {
-  const customName = $("draftNameIn").value.trim();
   const { code } = await api("/api/draft/create", {
     hostId: me.id, sport: wizSport, rounds: wizRounds,
-    name: customName || (SPORTNAMES[wizSport] + " squabble"),
+    name: SPORTNAMES[wizSport] + " squabble",
   });
-  $("draftNameIn").value = "";
   joinByCode(code);
 });
 
@@ -805,11 +812,38 @@ function renderLobby() {
       ${isHost && s.userId !== draft.hostId ? `<button class="rm" data-kick="${i}">✕</button>` : ""}
     </div>`).join("");
   $("hostTools").style.display = isHost ? "block" : "none";
+  $("codeEditBtn").style.display = isHost ? "inline-block" : "none";
   $("lobbyNote").textContent = isHost
     ? (draft.seats.length < 2 ? "Invite a friend or add a bot, then start." : "Everyone in? Hit start.")
     : "Waiting for the host to start…";
   $("startBtn").disabled = draft.seats.length < 2;
 }
+
+function _showCodeEdit() {
+  $("codeEditIn").value = draft.code;
+  $("codeDisplay").style.display = "none";
+  $("codeEditArea").style.display = "block";
+  $("codeEditIn").focus(); $("codeEditIn").select();
+}
+function _hideCodeEdit() {
+  $("codeDisplay").style.display = "flex";
+  $("codeEditArea").style.display = "none";
+}
+async function _doRecode() {
+  const nc = $("codeEditIn").value.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (!nc || nc === draft.code) { _hideCodeEdit(); return; }
+  try {
+    const { code: newCode } = await api(`/api/draft/${draft.code}/recode`, { hostId: me.id, newCode: nc });
+    draft.code = newCode;
+    leaveDraft(); connect(newCode);
+    _hideCodeEdit();
+    toast(`Room code set to ${newCode}`);
+  } catch (e) { toast(e.message || "Code already taken"); }
+}
+$("codeEditBtn").addEventListener("click", _showCodeEdit);
+$("codeEditOk").addEventListener("click", _doRecode);
+$("codeEditCancel").addEventListener("click", _hideCodeEdit);
+$("codeEditIn").addEventListener("keydown", (e) => { if (e.key === "Enter") _doRecode(); if (e.key === "Escape") _hideCodeEdit(); });
 $("lobbySeats").addEventListener("click", async (e) => {
   const k = e.target.getAttribute("data-kick");
   if (k !== null) await api(`/api/draft/${draft.code}/removeseat`, { hostId: me.id, seat: +k });
@@ -1121,10 +1155,8 @@ $("localBot").addEventListener("click", () => {
 $("localCancel").addEventListener("click", () => $("localModal").classList.remove("on"));
 $("localStart").addEventListener("click", () => {
   if (lWiz.seats.length < 2) { toast("Add at least one friend or bot"); return; }
-  const localCustomName = $("localDraftName").value.trim();
-  $("localDraftName").value = "";
   const d = {
-    local: true, name: localCustomName || (SPORTNAMES[lWiz.sport] + " squabble"), sport: lWiz.sport, rounds: lWiz.rounds,
+    local: true, name: SPORTNAMES[lWiz.sport] + " squabble", sport: lWiz.sport, rounds: lWiz.rounds,
     status: "active", seats: lWiz.seats, picks: [], chat: [], code: "LOCAL",
   };
   const arr = locals(); arr.unshift(d); saveLocals(arr);
