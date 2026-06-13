@@ -975,7 +975,7 @@ function localBotLoop() {
     const cur = draft.seats[lpIdx(draft)];
     if (!cur.bot) return;
     const taken = new Set(draft.picks.map((p) => p.player));
-    const avail = PLAYERS.filter((p) => !taken.has(p.n)).filter((p) => draft.sport === "ALL" || p.sp === draft.sport).sort((a, b) => a.r - b.r).slice(0, 3);
+    const avail = PLAYERS.filter((p) => !taken.has(p.n)).filter((p) => draft.sport === "ALL" || p.sp === draft.sport).filter((p) => !todaysPlayers || todaysPlayers.has(p.n)).sort((a, b) => a.r - b.r).slice(0, 5);
     const pick = avail[Math.floor(Math.random() * avail.length)];
     if (pick) localPick(pick.n);
   }, 1100);

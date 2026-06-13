@@ -96,11 +96,13 @@ function scheduleBot(code, s) {
     const cur = st.seats[pickerIndex(st)];
     if (!cur.bot) return;
     const taken = new Set(st.picks.map((p) => p.player));
+    const todayNames = await scoring.todaysPoolPlayers(st.sport).catch(() => null);
     const avail = PLAYERS
       .filter((p) => !taken.has(p.n))
       .filter((p) => st.sport === "ALL" || p.sp === st.sport)
+      .filter((p) => !todayNames || todayNames.has(p.n))
       .sort((a, b) => a.r - b.r)
-      .slice(0, 3);
+      .slice(0, 5);
     const pick = avail[Math.floor(Math.random() * avail.length)];
     if (!pick) return;
     applyPick(st, pick);

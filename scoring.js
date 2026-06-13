@@ -121,9 +121,7 @@ async function todaysTeams(sport) {
   } catch { return null; }
 }
 
-// return set of POOL player names eligible for today's draft:
-// pre-game events → all pool players from those teams
-// in-progress/done events → only players who appear in the box score
+// return set of POOL player names from teams scheduled today
 async function todaysPoolPlayers(sport) {
   const pair = LEAGUES[sport];
   if (!pair) return null;
@@ -131,24 +129,11 @@ async function todaysPoolPlayers(sport) {
   try {
     const sb = await jget(`https://site.api.espn.com/apis/site/v2/sports/${pair[0]}/${pair[1]}/scoreboard?dates=${day}`);
     if (!sb.events?.length) return null;
-    const idx = buildPoolIndex(sport);
     const names = new Set();
     for (const ev of sb.events || []) {
-      const state = ev.status?.type?.state;
-      if (state === "pre") {
-        for (const comp of ev.competitions?.[0]?.competitors || []) {
-          const abbr = comp.team?.abbreviation?.toUpperCase();
-          if (abbr) PLAYERS.filter((p) => p.sp === sport && p.tm === abbr).forEach((p) => names.add(p.n));
-        }
-      } else {
-        try {
-          const summary = await jget(`https://site.api.espn.com/apis/site/v2/sports/${pair[0]}/${pair[1]}/summary?event=${ev.id}`);
-          const scored = scoreSummary(FAMILY[sport], summary);
-          for (const espnName of scored.keys()) {
-            const poolName = matchPool(idx, espnName);
-            if (poolName) names.add(poolName);
-          }
-        } catch {}
+      for (const comp of ev.competitions?.[0]?.competitors || []) {
+        const abbr = comp.team?.abbreviation?.toUpperCase();
+        if (abbr) PLAYERS.filter((p) => p.sp === sport && p.tm === abbr).forEach((p) => names.add(p.n));
       }
     }
     return names.size > 0 ? names : null;
