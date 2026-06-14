@@ -460,9 +460,11 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
       <button class="choice sel" data-vis="private"><span class="e">🔒</span>Friends only</button>
       <button class="choice" data-vis="public"><span class="e">🌐</span>Open to all</button>
     </div>
-    <div style="margin:18px 0 8px;font-family:var(--display);font-size:20px;font-weight:700;color:var(--gold);letter-spacing:.5px">🤝 HANDSHAKE MODE <span style="color:var(--dim);font-size:13px;font-weight:600;letter-spacing:0">(optional)</span></div>
-    <input id="hsStakeIn" maxlength="40" placeholder='e.g. "$10 each" or "winner buys drinks"' style="width:100%;box-sizing:border-box" />
-    <p class="note" style="margin-top:5px">Everyone must shake on it before the draft can start.</p>
+    <div id="hsSection">
+      <div style="margin:18px 0 8px;font-family:var(--display);font-size:20px;font-weight:700;color:var(--gold);letter-spacing:.5px">🤝 HANDSHAKE MODE <span style="color:var(--dim);font-size:13px;font-weight:600;letter-spacing:0">(optional)</span></div>
+      <input id="hsStakeIn" maxlength="40" placeholder='e.g. "$10 each" or "winner buys drinks"' style="width:100%;box-sizing:border-box" />
+      <p class="note" style="margin-top:5px">Everyone must shake on it before the draft can start.</p>
+    </div>
     <button class="big gold" id="createDraft" style="margin-top:16px">Create draft room</button>
     <p class="note">You'll get a room code + link to send your friends. Up to 8 drafters.</p>
   </section>
@@ -737,6 +739,7 @@ document.addEventListener("click", (e) => {
 $("newDraft").addEventListener("click", () => {
   wizPublic = false;
   document.querySelectorAll("#visGrid .choice").forEach((c, i) => c.classList.toggle("sel", i === 0));
+  $("hsSection").style.display = "";
   show("scrNew");
 });
 function loadHome() { gotoTab(curTab in TABSCR ? curTab : "home"); }
@@ -960,6 +963,7 @@ $("visGrid").addEventListener("click", (e) => {
   const b = e.target.closest(".choice"); if (!b) return;
   document.querySelectorAll("#visGrid .choice").forEach((c) => c.classList.remove("sel"));
   b.classList.add("sel"); wizPublic = b.getAttribute("data-vis") === "public";
+  $("hsSection").style.display = wizPublic ? "none" : "";
 });
 $("createDraft").addEventListener("click", async (e) => {
   const btn = e.currentTarget;
