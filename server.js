@@ -272,7 +272,7 @@ app.post("/api/user/friendcode", ah(async (req, res) => {
 
 // create draft (lobby)
 app.post("/api/draft/create", ah(async (req, res) => {
-  const { hostId, sport, rounds, name, handshake, public: isPublic } = req.body;
+  const { hostId, sport, rounds, maxSeats, name, handshake, public: isPublic } = req.body;
   const u = (await pool.query("SELECT * FROM users WHERE id=$1", [hostId])).rows[0];
   if (!u) return res.status(404).json({ error: "register first" });
   let code;
@@ -281,6 +281,7 @@ app.post("/api/draft/create", ah(async (req, res) => {
     code, name: String(name || "Squabble").slice(0, 24),
     sport: ["NFL","NBA","MLB","NHL","GOLF","TEN","CBB","CFB","UFC","WCUP","SOC"].includes(sport) ? sport : "NFL",
     rounds: [3, 6].includes(+rounds) ? +rounds : 3,
+    maxSeats: [2, 3, 4, 6, 8].includes(+maxSeats) ? +maxSeats : 8,
     status: "lobby", hostId,
     public: isPublic === true,
     seats: [{ userId: hostId, name: u.name, av: u.av, img: u.img, bot: false, roster: [] }],
@@ -303,6 +304,7 @@ app.get("/api/lobby", ah(async (req, res) => {
     rounds: s.rounds,
     host: { name: s.seats[0]?.name, av: s.seats[0]?.av },
     seats: s.seats.length,
+    maxSeats: s.maxSeats || 8,
   }));
   res.json({ rooms });
 }));
@@ -358,7 +360,7 @@ app.post("/api/draft/:code/join", ah(async (req, res) => {
   if (!st) return res.status(404).json({ error: "Draft not found" });
   if (!st.seats.some((s) => s.userId === userId)) {
     if (st.status !== "lobby") return res.status(400).json({ error: "Draft already started" });
-    if (st.seats.length >= 8) return res.status(400).json({ error: "Draft is full (8 max)" });
+    if (st.seats.length >= (st.maxSeats || 8)) return res.status(400).json({ error: "Draft is full" });
     st.seats.push({ userId, name: u.name, av: u.av, img: u.img, bot: false, roster: [] });
     await pool.query("UPDATE drafts SET state=$1, participants=array_append(participants,$2), updated=now() WHERE code=$3", [st, userId, code]);
     await pool.query("DELETE FROM invites WHERE draft_code=$1 AND to_user=$2", [code, userId]);
@@ -392,7 +394,7 @@ async function hostAction(req, res, fn) {
 const BOTNAMES = ["RoboRick", "DraftDroid", "SnakeBot", "AutoAndy", "ChipChip", "BeepBoop", "Circuit Sam"];
 app.post("/api/draft/:code/addbot", ah((req, res) => hostAction(req, res, (st) => {
   if (st.status !== "lobby") return "Draft already started";
-  if (st.seats.length >= 8) return "Draft is full (8 max)";
+  if (st.seats.length >= (st.maxSeats || 8)) return "Draft is full";
   const used = st.seats.map((s) => s.name);
   const name = BOTNAMES.find((b) => !used.includes(b)) || "Bot " + (st.seats.length + 1);
   st.seats.push({ userId: null, name, av: "🤖", img: "", bot: true, roster: [] });
