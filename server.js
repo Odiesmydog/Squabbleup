@@ -423,6 +423,7 @@ function shuffleSeats(st) {
 app.post("/api/draft/:code/shuffle", ah((req, res) => hostAction(req, res, (st) => {
   if (st.status !== "lobby") return "Draft already started";
   shuffleSeats(st);
+  st.chat.push({ name: "Draft Order", av: "🎲", img: "", text: "Order shuffled! " + st.seats.map((x) => x.name).join(" → "), t: Date.now() });
 })));
 
 // leave a lobby draft (non-host removes self; host with no others deletes it)
