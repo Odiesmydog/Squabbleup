@@ -166,7 +166,8 @@ async function _fetchSchedule(sport) {
     // known positions from static list take priority over ESPN's generic G/F/C
     const knownPos = new Map(PLAYERS.map((p) => [p.n, p.pos]));
     for (const ev of sb.events || []) {
-      if (ev.status?.type?.state !== "pre") continue; // only allow picks from games not yet started
+      // exclude only fully finished games — "pre" (not started) and "in" (in progress) are both draftable
+      if (ev.status?.type?.state === "post") continue;
       const comps = ev.competitions?.[0]?.competitors || [];
       const away = comps.find((c) => c.homeAway === "away");
       const home = comps.find((c) => c.homeAway === "home");
@@ -182,14 +183,18 @@ async function _fetchSchedule(sport) {
         if (teamId) {
           try {
             const r = await jget(`https://site.api.espn.com/apis/site/v2/sports/${pair[0]}/${pair[1]}/teams/${teamId}/roster`);
-            for (const a of r.athletes || []) {
+            // ESPN baseball/hockey returns grouped athletes: [{position, items:[...]}]
+            // ESPN basketball/football returns flat athletes: [{displayName, ...}]
+            const rawAthletes = r.athletes || [];
+            const athletes = rawAthletes.flatMap((a) => a.items?.length ? a.items : (a.displayName ? [a] : []));
+            for (const a of athletes) {
               if (a.displayName) {
                 const pos = knownPos.get(a.displayName) || a.position?.abbreviation || "?";
                 names.add(a.displayName);
                 roster.push({ n: a.displayName, pos, tm: abbr, sp: sport });
+                added = true;
               }
             }
-            added = true;
           } catch {}
         }
         if (!added) PLAYERS.filter((p) => p.sp === sport && p.tm === abbr).forEach((p) => { names.add(p.n); roster.push(p); });
