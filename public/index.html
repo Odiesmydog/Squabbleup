@@ -123,11 +123,12 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
 .projTag { color: var(--green); font-weight: 700; }
 .pThumb { width: 38px; height: 38px; border-radius: 50%; object-fit: cover; flex-shrink: 0; background: var(--raised); }
 .pThumbFb { width: 38px; height: 38px; border-radius: 50%; background: var(--raised); display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 15px; color: var(--dim); flex-shrink: 0; }
-.stBadge { font-size: 10px; font-weight: 800; border-radius: 4px; padding: 1px 5px; margin-left: 6px; vertical-align: middle; }
-.stOut { background: #ff4444; color: #fff; }
-.stQ { background: #f5a623; color: #111; }
-.pRowOut { opacity: 0.45; }
-.outLbl { font-size: 11px; font-weight: 700; color: #ff4444; flex-shrink: 0; }
+.stBadge { font-size: 10px; font-weight: 800; border-radius: 4px; padding: 2px 6px; margin-left: 6px; vertical-align: middle; letter-spacing: .3px; }
+.stOut { background: #cc2222; color: #fff; }
+.stQ  { background: #e07b10; color: #fff; }
+.stD  { background: #994400; color: #fff; }
+.pRowOut { opacity: 0.4; }
+.outLbl { display: flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 800; color: #ff5555; flex-shrink: 0; }
 .draftBtn { font-family: var(--display); font-weight: 700; font-size: 14.5px; background: var(--green); color: var(--ink); border-radius: 10px; padding: 10px 17px; box-shadow: 0 3px 0 var(--green-d); flex-shrink: 0; }
 .draftBtn:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--green-d); }
 
@@ -1138,13 +1139,13 @@ function renderRoom() {
     const proj = draftRoomProj[p.n];
     const projStr = proj ? `<span class="projTag">${proj.proj.toFixed(1)} proj${proj.source === "sleeper" ? " 🔮" : ""}</span>` : "";
     const st = playerStatus[p.n];
-    const statusBadge = st?.status ? `<span class="stBadge ${OUT_STATUS.has(st.status) ? "stOut" : "stQ"}">${st.status}</span>` : "";
+    const statusBadge = st?.status ? `<span class="stBadge ${OUT_STATUS.has(st.status) ? "stOut" : st.status === "D" ? "stD" : "stQ"}">${st.status}</span>` : "";
     const thumb = st?.thumb ? `<img class="pThumb" src="${st.thumb}" onerror="this.style.display='none'" alt="" />` : `<div class="pThumb pThumbFb">${p.n[0]}</div>`;
     const isOut = OUT_STATUS.has(st?.status);
     return `<div class="pRow${isOut ? " pRowOut" : ""}" data-pname="${esc(p.n)}">
       ${thumb}
       <div class="pi"><div class="pn">${esc(p.n)}${statusBadge}</div><div class="pd"><span class="spTag">${p.sp}</span>${p.pos} · ${game}${projStr ? " · " + projStr : ""}</div></div>
-      ${myTurn && !isOut ? `<button class="draftBtn" data-pick="${esc(p.n)}">Draft</button>` : (isOut ? `<span class="outLbl">OUT</span>` : "")}
+      ${myTurn && !isOut ? `<button class="draftBtn" data-pick="${esc(p.n)}">Draft</button>` : (isOut ? `<span class="outLbl">🤕 Out</span>` : "")}
     </div>`;
   }).join("");
   if (activeTab === "board") $("tabBoard").innerHTML = draft.seats.map(rosterHtml).join("");
@@ -1174,7 +1175,7 @@ function showPDetail(pname) {
   const thumb = st?.thumb
     ? `<img src="${st.thumb}" onerror="this.style.display='none'" alt="" style="width:64px;height:64px;border-radius:12px;object-fit:cover" />`
     : `<div style="width:64px;height:64px;border-radius:12px;background:var(--raised);display:flex;align-items:center;justify-content:center;font-size:28px">${p.n[0]}</div>`;
-  const statusBadge = st?.status ? `<span class="stBadge ${OUT_STATUS.has(st.status) ? "stOut" : "stQ"}" style="margin-left:8px">${st.status}</span>` : "";
+  const statusBadge = st?.status ? `<span class="stBadge ${OUT_STATUS.has(st.status) ? "stOut" : st.status === "D" ? "stD" : "stQ"}" style="margin-left:8px">${st.status}</span>` : "";
   $("pDetailContent").innerHTML = `
     <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px;padding-right:30px">
       ${thumb}
@@ -1186,7 +1187,7 @@ function showPDetail(pname) {
     ${game ? `<div class="pDetailRow"><span class="pDetailLbl">Today's game</span><span class="pDetailVal pDetailGame">${esc(game)}</span></div>` : ""}
     ${!game && nextGameDay ? `<div class="pDetailRow"><span class="pDetailLbl">Next games</span><span class="pDetailVal" style="color:var(--gold)">${esc(nextGameDay)}</span></div>` : ""}
     ${proj ? `<div class="pDetailRow"><span class="pDetailLbl">Projected pts</span><span class="pDetailVal pDetailProj">${proj.proj.toFixed(1)}${proj.source === "sleeper" ? " 🔮" : ""}</span></div>` : ""}
-    ${st?.status && OUT_STATUS.has(st.status) ? `<div class="pDetailRow"><span class="pDetailLbl">Status</span><span class="pDetailVal" style="color:#ff6b6b">${st.status} — player is out</span></div>` : ""}
+    ${st?.status ? `<div class="pDetailRow"><span class="pDetailLbl">Status</span><span class="pDetailVal" style="color:${OUT_STATUS.has(st.status) ? "#ff6b6b" : st.status === "D" ? "#e07b10" : "#f0c04c"}">${OUT_STATUS.has(st.status) ? "🤕 " : ""}${st.status}${OUT_STATUS.has(st.status) ? " — cannot be drafted" : st.status === "D" ? " — doubtful to play" : " — questionable to play"}</span></div>` : ""}
   `;
   $("pDetailModal").classList.add("on");
 }

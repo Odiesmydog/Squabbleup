@@ -453,9 +453,13 @@ async function sleeperPlayerMap(sport) {
     const map = new Map(); // norm(fullName) → { id, status, thumb }
     for (const [id, p] of Object.entries(raw || {})) {
       if (!p.full_name) continue;
+      // Sleeper returns full words ("Out", "Questionable") — normalize to short codes
+      const rawInj = p.injury_status || null;
+      const INJ_NORM = { Questionable: "Q", Doubtful: "D", Out: "O", Probable: "P", "Injured Reserve": "IR" };
+      const status = INJ_NORM[rawInj] || rawInj;
       map.set(norm(p.full_name), {
         id,
-        status: p.injury_status || null,  // "Q" | "D" | "O" | "IR" | null
+        status,
         thumb: `https://sleepercdn.com/content/${ss}/players/thumb/${id}.jpg`,
       });
     }
