@@ -242,9 +242,9 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
 .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: 84px; background: var(--raised); border-radius: 999px; padding: 10px 20px; font-weight: 800; font-size: 14px; box-shadow: 0 4px 0 #232120; z-index: 60; display: none; }
 .err { color: var(--red); }
 /* slot machine shuffle */
-.slotRow { display: flex; align-items: center; gap: 12px; background: var(--panel); border-radius: var(--r); padding: 10px 14px; margin-bottom: 8px; box-shadow: 0 3px 0 #232120; }
+.slotRow { display: flex; align-items: center; gap: 12px; background: var(--panel); border-radius: var(--r); padding: 10px 14px; margin-bottom: 8px; box-shadow: 0 3px 0 #232120; overflow: hidden; }
 .slotPos { font-family: var(--display); font-weight: 700; font-size: 20px; color: var(--gold); width: 28px; text-align: center; flex-shrink: 0; }
-.slotName { font-weight: 800; font-size: 15px; flex: 1; color: var(--green); transition: opacity .06s; }
+.slotName { font-weight: 800; font-size: 15px; flex: 1; color: var(--green); display: inline-block; will-change: transform, opacity; transform-origin: center center; }
 </style>
 </head>
 <body>
@@ -1042,26 +1042,34 @@ function _runSlotAnim(names) {
   return new Promise((resolve) => {
     const els = names.map((_, i) => $("sn" + i)).filter(Boolean);
     if (!els.length) { resolve(); return; }
-    let settled = 0;
+    let pending = els.length;
     els.forEach((el, si) => {
-      const ticks = 10 + si * 2; // later slots spin a bit longer (staggered stop)
+      const ticks = 13 + si * 3;
       let t = 0;
-      function step() {
-        // fade out → swap name → fade in
-        el.style.opacity = "0";
+      function doTick() {
+        if (!el.isConnected) { if (--pending === 0) resolve(); return; }
+        el.style.transition = "transform 0.03s ease-in, opacity 0.03s";
+        el.style.transform = "scaleY(0)";
+        el.style.opacity = "0.15";
         setTimeout(() => {
+          if (!el.isConnected) return;
           el.textContent = names[Math.floor(Math.random() * names.length)];
+          const last = t >= ticks - 1;
+          el.style.transition = last
+            ? "transform 0.18s cubic-bezier(0.34,1.56,0.64,1), opacity 0.07s"
+            : "transform 0.06s ease-out, opacity 0.05s";
+          el.style.transform = "scaleY(1)";
           el.style.opacity = "1";
-        }, 60);
+        }, 32);
         t++;
         if (t < ticks) {
-          // quadratic ease-out: starts fast ~80ms, slows to ~350ms per tick
-          setTimeout(step, 80 + Math.pow(t / ticks, 2) * 280);
+          const p = t / ticks;
+          setTimeout(doTick, 45 + p * p * p * 360); // cubic: 45ms → 405ms
         } else {
-          if (++settled === els.length) resolve();
+          setTimeout(() => { if (--pending === 0) resolve(); }, 220);
         }
       }
-      setTimeout(step, si * 100); // slight stagger between slots
+      setTimeout(doTick, si * 85);
     });
   });
 }
@@ -1148,7 +1156,7 @@ function renderRoom() {
       ${myTurn && !isOut ? `<button class="draftBtn" data-pick="${esc(p.n)}">Draft</button>` : (isOut ? `<span class="outLbl">🤕 Out</span>` : "")}
     </div>`;
   }).join("");
-  if (activeTab === "board") $("tabBoard").innerHTML = draft.seats.map(rosterHtml).join("");
+  if (activeTab === "board") renderBoard("tabBoard");
 }
 $("posFilters").addEventListener("click", (e) => { const p = e.target.getAttribute("data-pos"); if (p) { posFilter = p; renderRoom(); } });
 let _searchT;
@@ -1200,7 +1208,7 @@ function setTab(t) {
   $("tabBoard").style.display = t === "board" ? "block" : "none";
   $("tabChat").style.display = t === "chat" ? "block" : "none";
   $("tabMatchup").style.display = t === "matchup" ? "block" : "none";
-  if (t === "board") $("tabBoard").innerHTML = draft.seats.map(rosterHtml).join("");
+  if (t === "board") renderBoard("tabBoard");
   if (t === "chat") { unreadChat = false; $("chatDot").style.display = "none"; scrollChat("roomChat"); }
   if (t === "matchup") { fetchScores().then(() => renderMatchup("tabMatchup")); }
 }
@@ -1338,6 +1346,62 @@ function rosterHtml(s) {
       `<div class="bPick"><span class="rd">R${i + 1}</span><span>${esc(p.n)}</span><span class="e">· ${p.sp} ${p.pos}</span></div>`).join("")
       : '<div class="bPick"><span class="e">No picks yet</span></div>'}
   </div>`;
+}
+function renderBoard(targetId) {
+  const seats = draft.seats;
+  if (seats.length < 2) {
+    $(targetId).innerHTML = '<div class="emptyBox"><div class="e">📋</div>Need at least 2 drafters.</div>';
+    return;
+  }
+  const sel = vsSelection[targetId] || (vsSelection[targetId] = { left: 0, right: 1 });
+  if (sel.left >= seats.length) sel.left = 0;
+  if (sel.right >= seats.length || sel.right === sel.left) sel.right = sel.left === 0 ? 1 : 0;
+  const lSeat = seats[sel.left];
+  const rSeat = seats[sel.right];
+  const multi = seats.length >= 3;
+
+  const chipsHtml = multi
+    ? `<div class="vsChips">${seats.map((s, i) => {
+        const cls = i === sel.left ? " vsL" : i === sel.right ? " vsR" : "";
+        return `<button class="vsChip${cls}" data-bdi="${i}">${avHtml(s)}<span>${esc(s.name)}</span></button>`;
+      }).join("")}</div>`
+    : "";
+
+  const hdr = (s) => `<div class="vsHdr">
+    ${avHtml(s)}
+    <div class="vsHdrName">${esc(s.name)}${s.userId === me.id ? ' <span class="vsYou">YOU</span>' : ""}</div>
+    <div class="vsSubPts">${s.roster.length} pick${s.roster.length !== 1 ? "s" : ""}</div>
+  </div>`;
+
+  const maxLen = Math.max(lSeat.roster.length, rSeat.roster.length);
+  const pickRows = maxLen
+    ? Array.from({ length: maxLen }, (_, i) => {
+        const alt = i % 2 === 1 ? " vsAlt" : "";
+        const cell = (p) => {
+          if (!p) return `<div class="vsCell${alt}"><span class="vsEmpty">—</span></div>`;
+          return `<div class="vsCell${alt}">
+            <div class="vsRd">R${i + 1}</div>
+            <div class="vsPn">${esc(p.n)}</div>
+            <div class="vsMeta">${p.sp} · ${p.pos}</div>
+          </div>`;
+        };
+        return cell(lSeat.roster[i]) + cell(rSeat.roster[i]);
+      }).join("")
+    : `<div class="vsCell" style="grid-column:1/-1;text-align:center;color:var(--dim);padding:20px">No picks yet</div>`;
+
+  $(targetId).innerHTML = chipsHtml + `<div class="vsGrid">${hdr(lSeat)}${hdr(rSeat)}${pickRows}</div>`;
+
+  if (multi) {
+    $(targetId).querySelector(".vsChips").addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-bdi]");
+      if (!btn) return;
+      const clicked = +btn.getAttribute("data-bdi");
+      if (clicked === sel.left) return;
+      sel.right = sel.left;
+      sel.left = clicked;
+      renderBoard(targetId);
+    });
+  }
 }
 function renderDone() {
   const scoringLive = draft.scoring && Date.now() < draft.scoring.end;
