@@ -410,7 +410,10 @@ app.post("/api/draft/:code/start", ah((req, res) => hostAction(req, res, (st) =>
     const nonBots = st.seats.filter((s) => !s.bot);
     if (!nonBots.every((s) => st.handshake.agreed.includes(s.userId))) return "Everyone must shake on it before starting";
   }
-  if (st.public) shuffleSeats(st); // auto-shuffle open rooms so no one gets first pick advantage
+  if (st.public) {
+    shuffleSeats(st);
+    st.chat.push({ name: "SquabbleUP", av: "🎲", img: "", text: "Draft order shuffled! " + st.seats.map((x) => x.name).join(" → ") + " — let's squabble! 🔥", t: Date.now() });
+  }
   st.status = "active";
 })));
 
