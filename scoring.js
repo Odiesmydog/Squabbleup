@@ -13,6 +13,7 @@ const LEAGUES = {
   MLB: ["baseball", "mlb"],
   NHL: ["hockey", "nhl"],
   UFC: ["mma", "ufc"],
+  WCUP: ["soccer", "fifa.world"],
 };
 
 // ESPN scoreboard uses 2-letter abbreviations for some NBA teams; expand to match players-data
@@ -37,7 +38,11 @@ const RULES = {
   // NHL uses BS (blocked shots) label, not BLK
   hockey: { "*:G": 8, "*:A": 5, "*:SOG": 1.5, "*:BS": 1.3, "*:SV": 0.7, "*:GA": -3.5 },
 };
-const FAMILY = { NFL: "football", CFB: "football", NBA: "basketball", CBB: "basketball", MLB: "baseball", NHL: "hockey", UFC: "mma" };
+// Soccer position abbreviations from ESPN
+const SOC_POS = { G: "GK", D: "DEF", M: "MID", F: "FWD" };
+// Multi-league list for general soccer (SOC sport)
+const SOC_LEAGUES = ["usa.1", "uefa.champions", "eng.1", "esp.1", "ger.1", "ita.1", "fra.1", "conmebol.libertadores", "mex.1"];
+const FAMILY = { NFL: "football", CFB: "football", NBA: "basketball", CBB: "basketball", MLB: "baseball", NHL: "hockey", UFC: "mma", WCUP: "soccer", SOC: "soccer" };
 
 // golf placement points (final leaderboard position)
 function golfPoints(pos) {
@@ -103,6 +108,32 @@ function scoreSummary(family, summary) {
           out.set(name, cur);
         }
       }
+    }
+  }
+  return out;
+}
+
+// Soccer scoring — ESPN uses summary.rosters (not boxscore.players)
+// G=6, A=4, SV=1, GK clean sheet +4, YC=-1, RC=-3, OG=-2
+function scoreSoccer(summary) {
+  const out = new Map();
+  for (const team of summary.rosters || []) {
+    for (const ath of team.roster || []) {
+      const name = ath.athlete?.displayName;
+      if (!name) continue;
+      const stats = ath.stats || [];
+      const get = (abbr) => stats.find((s) => s.abbreviation === abbr)?.value || 0;
+      const g = get("G"); const a = get("A"); const sv = get("SV");
+      const ga = get("GA"); const yc = get("YC"); const rc = get("RC"); const og = get("OG");
+      let pts = 0; const parts = [];
+      if (g)           { pts += g * 6;  parts.push(g + "G"); }
+      if (a)           { pts += a * 4;  parts.push(a + "A"); }
+      if (sv)          { pts += sv * 1; parts.push(sv + "SV"); }
+      if (sv > 0 && ga === 0) { pts += 4; parts.push("CS"); } // GK clean sheet
+      if (yc)          { pts += yc * -1; parts.push(yc + "YC"); }
+      if (rc)          { pts += rc * -3; parts.push(rc + "RC"); }
+      if (og)          { pts += og * -2; parts.push(og + "OG"); }
+      if (pts || parts.length) out.set(name, { pts, parts });
     }
   }
   return out;
@@ -203,6 +234,41 @@ async function _fetchSchedule(sport) {
     }
     return { players: names.size > 0 ? names : null, matchups, roster };
   }
+  // General soccer — check multiple leagues for today's games
+  if (sport === "SOC") {
+    const day = dstr(new Date()); const names = new Set(); const matchups = {}; const roster = [];
+    for (const lg of SOC_LEAGUES) {
+      try {
+        const sb = await jget(`https://site.api.espn.com/apis/site/v2/sports/soccer/${lg}/scoreboard?dates=${day}`);
+        for (const ev of sb.events || []) {
+          if (ev.status?.type?.state === "post") continue;
+          const comps = ev.competitions?.[0]?.competitors || [];
+          const away = comps.find((c) => c.homeAway === "away"); const home = comps.find((c) => c.homeAway === "home");
+          const label = away && home
+            ? `${normTeamAbbr(away.team?.abbreviation)} @ ${normTeamAbbr(home.team?.abbreviation)}`
+            : comps.map((c) => normTeamAbbr(c.team?.abbreviation)).join(" vs ");
+          for (const comp of comps) {
+            const abbr = normTeamAbbr(comp.team?.abbreviation);
+            const teamId = comp.team?.id;
+            if (!abbr) continue;
+            matchups[abbr] = label;
+            if (teamId) {
+              try {
+                const r = await jget(`https://site.api.espn.com/apis/site/v2/sports/soccer/${lg}/teams/${teamId}/roster`);
+                for (const a of (r.athletes || []).filter((x) => x.displayName)) {
+                  if (!names.has(a.displayName)) {
+                    const pos = SOC_POS[a.position?.abbreviation] || a.position?.abbreviation || "?";
+                    names.add(a.displayName); roster.push({ n: a.displayName, pos, tm: abbr, sp: "SOC" });
+                  }
+                }
+              } catch {}
+            }
+          }
+        }
+      } catch {}
+    }
+    return { players: names.size > 0 ? names : null, matchups, roster };
+  }
   const pair = LEAGUES[sport];
   if (!pair) return { players: null, matchups: {}, roster: [] };
   const day = dstr(new Date());
@@ -236,7 +302,8 @@ async function _fetchSchedule(sport) {
             const athletes = rawAthletes.flatMap((a) => a.items?.length ? a.items : (a.displayName ? [a] : []));
             for (const a of athletes) {
               if (a.displayName) {
-                const pos = knownPos.get(a.displayName) || a.position?.abbreviation || "?";
+                const rawPos = knownPos.get(a.displayName) || a.position?.abbreviation || "?";
+                const pos = FAMILY[sport] === "soccer" ? (SOC_POS[rawPos] || rawPos) : rawPos;
                 names.add(a.displayName);
                 roster.push({ n: a.displayName, pos, tm: abbr, sp: sport });
                 added = true;
@@ -262,6 +329,18 @@ async function todaysPoolPlayers(sport) { return (await todaysSchedule(sport)).p
 
 // find the next calendar date (up to 14 days out) that has games for a sport
 async function nextGameDay(sport) {
+  if (sport === "SOC") {
+    for (let i = 1; i <= 14; i++) {
+      const d = new Date(Date.now() + i * 864e5);
+      for (const lg of SOC_LEAGUES) {
+        try {
+          const sb = await jget(`https://site.api.espn.com/apis/site/v2/sports/soccer/${lg}/scoreboard?dates=${dstr(d)}`);
+          if (sb.events?.length > 0) return d.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
+        } catch {}
+      }
+    }
+    return null;
+  }
   const pair = LEAGUES[sport];
   if (!pair) return null;
   for (let i = 1; i <= 14; i++) {
@@ -326,7 +405,9 @@ async function pollLeagueDay(pool, sport, dayDate) {
     let summary;
     try { summary = await jget(`https://site.api.espn.com/apis/site/v2/sports/${s}/${l}/summary?event=${ev.id}`); }
     catch (e) { continue; }
-    const scored = scoreSummary(FAMILY[sport], summary);
+    const scored = FAMILY[sport] === "soccer"
+      ? scoreSoccer(summary)
+      : scoreSummary(FAMILY[sport], summary);
     for (const [espnName, v] of scored) {
       // use canonical name from our pool if available, otherwise store ESPN displayName directly
       const poolName = matchPool(idx, espnName) || espnName;
@@ -387,6 +468,27 @@ async function pollTennisDay(pool, dayDate) {
   }
 }
 
+async function pollSocDay(pool, sport, dayDate) {
+  const idx = buildPoolIndex(sport);
+  const day = dstr(dayDate);
+  for (const lg of SOC_LEAGUES) {
+    let sb;
+    try { sb = await jget(`https://site.api.espn.com/apis/site/v2/sports/soccer/${lg}/scoreboard?dates=${day}`); }
+    catch { continue; }
+    for (const ev of sb.events || []) {
+      if (ev.status?.type?.state === "pre") continue;
+      let summary;
+      try { summary = await jget(`https://site.api.espn.com/apis/site/v2/sports/soccer/${lg}/summary?event=${ev.id}`); }
+      catch { continue; }
+      const scored = scoreSoccer(summary);
+      for (const [espnName, v] of scored) {
+        const poolName = matchPool(idx, espnName) || espnName;
+        await upsertScore(pool, dayDate, sport, poolName, Math.round(v.pts * 10) / 10, v.parts.join(" · "));
+      }
+    }
+  }
+}
+
 async function upsertScore(pool, dayDate, sport, player, pts, line) {
   await pool.query(
     `INSERT INTO player_scores (day, sport, player, pts, line) VALUES ($1,$2,$3,$4,$5)
@@ -402,6 +504,7 @@ async function pollAll(pool) {
     for (const sport of Object.keys(LEAGUES)) await pollLeagueDay(pool, sport, d).catch((e) => console.error(sport, e.message));
     await pollGolfDay(pool, d).catch(() => {});
     await pollTennisDay(pool, d).catch(() => {});
+    await pollSocDay(pool, "SOC", d).catch((e) => console.error("SOC", e.message));
   }
   console.log("scoring poll done", new Date().toISOString());
 }
