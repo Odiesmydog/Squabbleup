@@ -412,7 +412,7 @@ app.post("/api/draft/:code/start", ah((req, res) => hostAction(req, res, (st) =>
   }
   if (st.public) {
     shuffleSeats(st);
-    st.chat.push({ name: "SquabbleUP", av: "🎲", img: "", text: "Draft order shuffled! " + st.seats.map((x) => x.name).join(" → ") + " — let's squabble! 🔥", t: Date.now() });
+    st.chat.push({ name: "SquabbleUP", av: "🎲", img: "", text: "Draft order shuffled! " + st.seats.map((x) => x.name).join(" → ") + " — let's squabble UP! 🔥", t: Date.now() });
   }
   st.status = "active";
 })));
