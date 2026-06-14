@@ -240,6 +240,10 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
 .localTag { font-size: 9.5px; font-weight: 800; background: var(--raised); color: var(--gold); border-radius: 4px; padding: 2px 6px; }
 .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: 84px; background: var(--raised); border-radius: 999px; padding: 10px 20px; font-weight: 800; font-size: 14px; box-shadow: 0 4px 0 #232120; z-index: 60; display: none; }
 .err { color: var(--red); }
+/* slot machine shuffle */
+.slotRow { display: flex; align-items: center; gap: 12px; background: var(--panel); border-radius: var(--r); padding: 10px 14px; margin-bottom: 8px; box-shadow: 0 3px 0 #232120; }
+.slotPos { font-family: var(--display); font-weight: 700; font-size: 20px; color: var(--gold); width: 28px; text-align: center; flex-shrink: 0; }
+.slotName { font-weight: 800; font-size: 15px; flex: 1; color: var(--green); transition: opacity .06s; }
 </style>
 </head>
 <body>
@@ -869,7 +873,7 @@ $("createDraft").addEventListener("click", async (e) => {
 });
 
 // ================= draft connection =================
-let draft = null, ws = null, pollT = null, posFilter = "All", q = "", activeTab = "pick", unreadChat = false, lastChatLen = 0;
+let draft = null, ws = null, pollT = null, posFilter = "All", q = "", activeTab = "pick", unreadChat = false, lastChatLen = 0, _shuffling = false;
 let todaysPlayers = null, nextGameDay = null, todayMatchups = {}, draftRoomProj = {}, playerStatus = {}, todaysRoster = [];
 // Precomputed rank map — built once from static PLAYERS list
 const RANK_MAP = new Map(PLAYERS.map((p) => [p.n, p.r]));
@@ -933,12 +937,14 @@ function renderLobby() {
   $("lobbyTitle").textContent = draft.name;
   $("roomCode").textContent = draft.code;
   $("seatCount").textContent = `· ${draft.seats.length}/8`;
-  $("lobbySeats").innerHTML = draft.seats.map((s, i) => `
-    <div class="fRow">${avHtml(s)}<span class="fn">${esc(s.name)}</span>
-      ${s.userId === draft.hostId ? '<span class="tag host">HOST</span>' : ""}
-      ${s.userId === me.id ? '<span class="tag">YOU</span>' : ""}
-      ${isHost && s.userId !== draft.hostId ? `<button class="rm" data-kick="${i}">✕</button>` : ""}
-    </div>`).join("");
+  if (!_shuffling) {
+    $("lobbySeats").innerHTML = draft.seats.map((s, i) => `
+      <div class="fRow">${avHtml(s)}<span class="fn">${esc(s.name)}</span>
+        ${s.userId === draft.hostId ? '<span class="tag host">HOST</span>' : ""}
+        ${s.userId === me.id ? '<span class="tag">YOU</span>' : ""}
+        ${isHost && s.userId !== draft.hostId ? `<button class="rm" data-kick="${i}">✕</button>` : ""}
+      </div>`).join("");
+  }
   $("hostTools").style.display = isHost ? "block" : "none";
   $("codeEditBtn").style.display = isHost ? "inline-block" : "none";
 
@@ -1006,8 +1012,58 @@ $("lobbySeats").addEventListener("click", async (e) => {
 $("shareDraft").addEventListener("click", () =>
   shareText(`Draft against me on SquabbleUP! Room code ${draft.code} —`, `${location.origin}/?join=${draft.code}`));
 $("lobbyAddBot").addEventListener("click", () => api(`/api/draft/${draft.code}/addbot`, { hostId: me.id }));
-$("lobbyShuffle").addEventListener("click", () => api(`/api/draft/${draft.code}/shuffle`, { hostId: me.id }));
+$("lobbyShuffle").addEventListener("click", async () => {
+  if (_shuffling || !draft || draft.seats.length < 2) return;
+  _shuffling = true;
+  const btn = $("lobbyShuffle");
+  btn.disabled = true;
+  btn.textContent = "🎰 Shuffling…";
+
+  const names = draft.seats.map((s) => s.name);
+
+  // show slot rows — gold position number left, spinning name right
+  $("lobbySeats").innerHTML = names.map((n, i) =>
+    `<div class="slotRow"><span class="slotPos">${i + 1}</span><span class="slotName" id="sn${i}">${n}</span></div>`
+  ).join("");
+
+  const serverCall = api(`/api/draft/${draft.code}/shuffle`, { hostId: me.id }).catch(() => {});
+  await _runSlotAnim(names);
+  await serverCall;
+
+  _shuffling = false;
+  btn.disabled = false;
+  btn.textContent = "🎲 Randomize draft order";
+  renderLobby();
+});
 $("startBtn").addEventListener("click", () => api(`/api/draft/${draft.code}/start`, { hostId: me.id }));
+
+function _runSlotAnim(names) {
+  return new Promise((resolve) => {
+    const els = names.map((_, i) => $("sn" + i)).filter(Boolean);
+    if (!els.length) { resolve(); return; }
+    let settled = 0;
+    els.forEach((el, si) => {
+      const ticks = 10 + si * 2; // later slots spin a bit longer (staggered stop)
+      let t = 0;
+      function step() {
+        // fade out → swap name → fade in
+        el.style.opacity = "0";
+        setTimeout(() => {
+          el.textContent = names[Math.floor(Math.random() * names.length)];
+          el.style.opacity = "1";
+        }, 60);
+        t++;
+        if (t < ticks) {
+          // quadratic ease-out: starts fast ~80ms, slows to ~350ms per tick
+          setTimeout(step, 80 + Math.pow(t / ticks, 2) * 280);
+        } else {
+          if (++settled === els.length) resolve();
+        }
+      }
+      setTimeout(step, si * 100); // slight stagger between slots
+    });
+  });
+}
 
 // invite friends modal
 $("lobbyInviteFriends").addEventListener("click", async () => {
