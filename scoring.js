@@ -140,8 +140,12 @@ async function _fetchSchedule(sport) {
       // prefer "in" (live) over "pre" for the tournament name
       const ev0 = active.find((e) => e.status?.type?.state === "in") || active[0];
       const tournName = ev0?.shortName || ev0?.name || "PGA Tour";
+      const isLive = ev0?.status?.type?.state === "in";
       const names = new Set(); const matchups = {}; const roster = [];
-      for (const p of PLAYERS.filter((x) => x.sp === "GOLF")) { names.add(p.n); matchups[p.tm] = tournName; roster.push(p); }
+      for (const p of PLAYERS.filter((x) => x.sp === "GOLF")) {
+        names.add(p.n); matchups[p.tm] = tournName;
+        roster.push(isLive ? { ...p, livelock: true } : p);
+      }
       return { players: names.size > 0 ? names : null, matchups, roster };
     } catch { return { players: null, matchups: {}, roster: [] }; }
   }
@@ -166,12 +170,13 @@ async function _fetchSchedule(sport) {
           if (cs.length < 2) continue;
           const [aN, bN] = [cs[0], cs[1]].map((c) => c.athlete?.displayName);
           if (!aN || !bN) continue;
-          // comp.type.text may be "Lightweight Championship", "Middleweight", etc. — use includes()
-          const wtText = (comp.type?.text || comp.type?.name || "").toLowerCase();
+          // comp.type.abbreviation = "Featherweight"; text/name may say "Lightweight Championship"
+          const wtText = (comp.type?.abbreviation || comp.type?.text || comp.type?.name || "").toLowerCase();
           const pos = Object.entries(WT).find(([k]) => wtText.includes(k))?.[1] || "MMA";
+          const recStr = (c) => { const r = c.records?.find((x) => x.type === "total"); if (!r) return ""; const p = r.summary.split("-"); return p[2] === "0" ? `${p[0]}-${p[1]}` : r.summary; };
           names.add(aN); names.add(bN);
-          roster.push({ n: aN, pos, tm: "vs " + short(bN), sp: "UFC" });
-          roster.push({ n: bN, pos, tm: "vs " + short(aN), sp: "UFC" });
+          roster.push({ n: aN, pos, tm: "vs " + short(bN), sp: "UFC", rec: recStr(cs[0]) });
+          roster.push({ n: bN, pos, tm: "vs " + short(aN), sp: "UFC", rec: recStr(cs[1]) });
         }
       }
       return { players: names.size > 0 ? names : null, matchups: {}, roster };
@@ -189,7 +194,11 @@ async function _fetchSchedule(sport) {
         const ev0 = active.find((e) => e.status?.type?.state === "in") || active[0];
         const tournName = ev0?.shortName || ev0?.name || `${tour.toUpperCase()} Tennis`;
         const pos = tour === "atp" ? "ATP" : "WTA";
-        for (const p of PLAYERS.filter((x) => x.sp === "TEN" && x.pos === pos)) { names.add(p.n); matchups[p.tm] = tournName; roster.push(p); }
+        const isLive = ev0?.status?.type?.state === "in";
+        for (const p of PLAYERS.filter((x) => x.sp === "TEN" && x.pos === pos)) {
+          names.add(p.n); matchups[p.tm] = tournName;
+          roster.push(isLive ? { ...p, livelock: true } : p);
+        }
       } catch {}
     }
     return { players: names.size > 0 ? names : null, matchups, roster };

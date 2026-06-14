@@ -124,9 +124,10 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
 .pThumb { width: 38px; height: 38px; border-radius: 50%; object-fit: cover; flex-shrink: 0; background: var(--raised); }
 .pThumbFb { width: 38px; height: 38px; border-radius: 50%; background: var(--raised); display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 15px; color: var(--dim); flex-shrink: 0; }
 .stBadge { font-size: 10px; font-weight: 800; border-radius: 4px; padding: 2px 6px; margin-left: 6px; vertical-align: middle; letter-spacing: .3px; }
-.stOut { background: #cc2222; color: #fff; }
-.stQ  { background: #e07b10; color: #fff; }
-.stD  { background: #994400; color: #fff; }
+.stOut  { background: #cc2222; color: #fff; }
+.stQ    { background: #e07b10; color: #fff; }
+.stD    { background: #994400; color: #fff; }
+.stLive { background: #1a4a2e; color: #7fb94c; }
 .pRowOut { opacity: 0.4; }
 .outLbl { display: flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 800; color: #ff5555; flex-shrink: 0; }
 .draftBtn { font-family: var(--display); font-weight: 700; font-size: 14.5px; background: var(--green); color: var(--ink); border-radius: 10px; padding: 10px 17px; box-shadow: 0 3px 0 var(--green-d); flex-shrink: 0; }
@@ -1116,8 +1117,8 @@ function availPlayers() {
     .filter((p) => posFilter === "All" || p.pos === posFilter)
     .filter((p) => p.n.toLowerCase().includes(q))
     .sort((a, b) => {
-      const aOut = OUT_STATUS.has(playerStatus[a.n]?.status) ? 1 : 0;
-      const bOut = OUT_STATUS.has(playerStatus[b.n]?.status) ? 1 : 0;
+      const aOut = (OUT_STATUS.has(playerStatus[a.n]?.status) || a.livelock) ? 1 : 0;
+      const bOut = (OUT_STATUS.has(playerStatus[b.n]?.status) || b.livelock) ? 1 : 0;
       return aOut !== bOut ? aOut - bOut : (RANK_MAP.get(a.n) || 999) - (RANK_MAP.get(b.n) || 999);
     });
 }
@@ -1159,13 +1160,16 @@ function renderRoom() {
     const proj = draftRoomProj[p.n];
     const projStr = proj ? `<span class="projTag">${proj.proj.toFixed(1)} proj${proj.source === "sleeper" ? " 🔮" : ""}</span>` : "";
     const st = playerStatus[p.n];
-    const statusBadge = st?.status ? `<span class="stBadge ${OUT_STATUS.has(st.status) ? "stOut" : st.status === "D" ? "stD" : "stQ"}">${st.status}</span>` : "";
+    const statusBadge = p.livelock
+      ? `<span class="stBadge stLive">LIVE</span>`
+      : (st?.status ? `<span class="stBadge ${OUT_STATUS.has(st.status) ? "stOut" : st.status === "D" ? "stD" : "stQ"}">${st.status}</span>` : "");
     const thumb = st?.thumb ? `<img class="pThumb" src="${st.thumb}" onerror="this.style.display='none'" alt="" />` : `<div class="pThumb pThumbFb">${p.n[0]}</div>`;
-    const isOut = OUT_STATUS.has(st?.status);
+    const isOut = OUT_STATUS.has(st?.status) || p.livelock;
+    const recStr = p.rec ? ` · ${p.rec}` : "";
     return `<div class="pRow${isOut ? " pRowOut" : ""}" data-pname="${esc(p.n)}">
       ${thumb}
-      <div class="pi"><div class="pn">${esc(p.n)}${statusBadge}</div><div class="pd"><span class="spTag">${p.sp}</span>${p.pos} · ${game}${projStr ? " · " + projStr : ""}</div></div>
-      ${myTurn && !isOut ? `<button class="draftBtn" data-pick="${esc(p.n)}">Draft</button>` : (isOut ? `<span class="outLbl">🤕 Out</span>` : "")}
+      <div class="pi"><div class="pn">${esc(p.n)}${statusBadge}</div><div class="pd"><span class="spTag">${p.sp}</span>${p.pos} · ${game}${recStr}${projStr ? " · " + projStr : ""}</div></div>
+      ${myTurn && !isOut ? `<button class="draftBtn" data-pick="${esc(p.n)}">Draft</button>` : (isOut ? `<span class="outLbl">${p.livelock ? "🔒 Live" : "🤕 Out"}</span>` : "")}
     </div>`;
   }).join("");
   if (activeTab === "board") renderBoard("tabBoard");
@@ -1187,27 +1191,31 @@ $("pool").addEventListener("click", async (e) => {
   if (row && !e.target.closest("button")) showPDetail(row.getAttribute("data-pname"));
 });
 function showPDetail(pname) {
-  const p = PLAYERS.find((x) => x.n === pname);
+  const p = PLAYERS.find((x) => x.n === pname) || todaysRoster.find((x) => x.n === pname);
   if (!p) return;
   const st = playerStatus[pname];
   const proj = draftRoomProj[pname];
-  const game = todayMatchups[p.tm];
+  const game = todayMatchups[p.tm] || p.tm;
   const thumb = st?.thumb
     ? `<img src="${st.thumb}" onerror="this.style.display='none'" alt="" style="width:64px;height:64px;border-radius:12px;object-fit:cover" />`
     : `<div style="width:64px;height:64px;border-radius:12px;background:var(--raised);display:flex;align-items:center;justify-content:center;font-size:28px">${p.n[0]}</div>`;
-  const statusBadge = st?.status ? `<span class="stBadge ${OUT_STATUS.has(st.status) ? "stOut" : st.status === "D" ? "stD" : "stQ"}" style="margin-left:8px">${st.status}</span>` : "";
+  const statusBadge = p.livelock
+    ? `<span class="stBadge stLive" style="margin-left:8px">LIVE</span>`
+    : (st?.status ? `<span class="stBadge ${OUT_STATUS.has(st.status) ? "stOut" : st.status === "D" ? "stD" : "stQ"}" style="margin-left:8px">${st.status}</span>` : "");
   $("pDetailContent").innerHTML = `
     <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px;padding-right:30px">
       ${thumb}
       <div>
         <div style="font-weight:800;font-size:18px;line-height:1.2">${esc(pname)}${statusBadge}</div>
-        <div style="color:var(--dim);font-size:13px;margin-top:4px"><span class="spTag">${p.sp}</span> ${p.pos} · ${p.tm}</div>
+        <div style="color:var(--dim);font-size:13px;margin-top:4px"><span class="spTag">${p.sp}</span> ${p.pos}${p.rec ? " · " + p.rec : ""} · ${esc(p.tm)}</div>
       </div>
     </div>
-    ${game ? `<div class="pDetailRow"><span class="pDetailLbl">Today's game</span><span class="pDetailVal pDetailGame">${esc(game)}</span></div>` : ""}
+    ${game && game !== p.tm ? `<div class="pDetailRow"><span class="pDetailLbl">Today's game</span><span class="pDetailVal pDetailGame">${esc(game)}</span></div>` : ""}
     ${!game && nextGameDay ? `<div class="pDetailRow"><span class="pDetailLbl">Next games</span><span class="pDetailVal" style="color:var(--gold)">${esc(nextGameDay)}</span></div>` : ""}
+    ${p.rec ? `<div class="pDetailRow"><span class="pDetailLbl">Record</span><span class="pDetailVal" style="color:var(--text)">${esc(p.rec)}</span></div>` : ""}
     ${proj ? `<div class="pDetailRow"><span class="pDetailLbl">Projected pts</span><span class="pDetailVal pDetailProj">${proj.proj.toFixed(1)}${proj.source === "sleeper" ? " 🔮" : ""}</span></div>` : ""}
-    ${st?.status ? `<div class="pDetailRow"><span class="pDetailLbl">Status</span><span class="pDetailVal" style="color:${OUT_STATUS.has(st.status) ? "#ff6b6b" : st.status === "D" ? "#e07b10" : "#f0c04c"}">${OUT_STATUS.has(st.status) ? "🤕 " : ""}${st.status}${OUT_STATUS.has(st.status) ? " — cannot be drafted" : st.status === "D" ? " — doubtful to play" : " — questionable to play"}</span></div>` : ""}
+    ${p.livelock ? `<div class="pDetailRow"><span class="pDetailLbl">Status</span><span class="pDetailVal" style="color:#7fb94c">🔒 In progress — cannot be drafted</span></div>` : ""}
+    ${!p.livelock && st?.status ? `<div class="pDetailRow"><span class="pDetailLbl">Status</span><span class="pDetailVal" style="color:${OUT_STATUS.has(st.status) ? "#ff6b6b" : st.status === "D" ? "#e07b10" : "#f0c04c"}">${OUT_STATUS.has(st.status) ? "🤕 " : ""}${st.status}${OUT_STATUS.has(st.status) ? " — cannot be drafted" : st.status === "D" ? " — doubtful to play" : " — questionable to play"}</span></div>` : ""}
   `;
   $("pDetailModal").classList.add("on");
 }
