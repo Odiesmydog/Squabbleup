@@ -188,21 +188,33 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
 .bnav button .i { font-size: 20px; }
 .bnav button.on { color: var(--green); }
 .bnav button .bdg { position: absolute; top: 4px; right: 18%; background: var(--red); color: #fff; font-size: 9px; border-radius: 8px; padding: 1px 5px; font-weight: 800; }
-.muRow { display: flex; align-items: center; gap: 10px; background: var(--panel); border-radius: var(--r); padding: 11px 13px; margin-bottom: 8px; box-shadow: 0 4px 0 #232120; cursor: pointer; }
-.muRow .rank { font-family: var(--display); font-weight: 700; font-size: 17px; color: var(--dim); width: 24px; }
-.muRow.first .rank { color: var(--gold); }
-.muRow .who { flex: 1; min-width: 0; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.muRow .pts { font-family: var(--display); font-weight: 700; font-size: 19px; color: var(--green); }
-.muDetail { background: var(--bg); border-radius: 10px; margin: -4px 0 8px; padding: 8px 12px; display: none; }
-.muDetail.open { display: block; }
-.muP { padding: 6px 0; border-bottom: 1px solid var(--raised); }
-.muP:last-child { border-bottom: none; }
-.muPTop { display: flex; align-items: center; gap: 8px; }
-.muP .nm2 { flex: 1; font-weight: 700; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.muP .ptag { display: inline-block; font-size: 10px; color: var(--dim); background: var(--raised); border-radius: 4px; padding: 1px 5px; margin-left: 5px; vertical-align: middle; }
-.muP .projSm { font-size: 10px; color: var(--dim); white-space: nowrap; }
-.muP .ln { color: var(--dim); font-size: 11px; line-height: 1.4; word-break: break-word; margin-top: 2px; }
-.muP .pp { font-weight: 800; color: var(--green); font-size: 15px; text-align: right; white-space: nowrap; }
+/* ── side-by-side matchup ── */
+.vsChips { display: flex; gap: 7px; overflow-x: auto; padding-bottom: 10px; scrollbar-width: none; margin-bottom: 12px; }
+.vsChips::-webkit-scrollbar { display: none; }
+.vsChip { display: flex; align-items: center; gap: 6px; background: var(--panel); border-radius: 999px; padding: 6px 12px 6px 6px; font-size: 13px; font-weight: 700; white-space: nowrap; box-shadow: 0 3px 0 #232120; flex-shrink: 0; color: var(--dim); transition: transform .06s; }
+.vsChip:active { transform: translateY(2px); }
+.vsChip .av { width: 22px; height: 22px; font-size: 12px; }
+.vsChipPts { font-size: 12px; color: var(--text); margin-left: 3px; }
+.vsChip.vsL { background: var(--green); color: var(--ink); box-shadow: 0 3px 0 var(--green-d); }
+.vsChip.vsR { background: var(--gold); color: #3A2C08; box-shadow: 0 3px 0 var(--gold-d); }
+.vsChip.vsL .vsChipPts, .vsChip.vsR .vsChipPts { color: inherit; opacity: .8; }
+.vsGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; background: var(--line); border-radius: var(--r); overflow: hidden; margin-bottom: 10px; }
+.vsHdr { background: var(--panel); padding: 14px 8px 12px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.vsHdr.vsWin { background: #192b0d; }
+.vsHdrName { font-family: var(--display); font-weight: 700; font-size: 13px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vsHdrPts { font-family: var(--display); font-weight: 700; font-size: 38px; color: var(--green); line-height: 1.05; }
+.vsHdr.vsWin .vsHdrPts { color: #c8f060; }
+.vsSubPts { font-size: 11px; color: var(--dim); }
+.vsCrown { font-size: 20px; margin-top: 2px; }
+.vsYou { font-size: 10px; color: var(--green); font-weight: 800; }
+.vsCell { background: var(--panel); padding: 9px 10px; min-width: 0; overflow: hidden; }
+.vsCell.vsAlt { background: var(--raised); }
+.vsRd { font-family: var(--display); font-size: 9px; color: var(--gold); font-weight: 700; letter-spacing: .5px; text-transform: uppercase; margin-bottom: 2px; }
+.vsPn { font-weight: 800; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vsMeta { font-size: 11px; color: var(--dim); margin-top: 2px; }
+.vsGreen { color: var(--green); font-weight: 800; }
+.vsDimTxt { color: var(--dim); }
+.vsEmpty { color: var(--dim); font-size: 13px; }
 .scoreNote { font-size: 11.5px; color: var(--dim); text-align: center; margin: 10px 0; }
 .noGamesBox { background: var(--raised); border-left: 3px solid var(--gold); border-radius: 8px; padding: 10px 13px; font-size: 12.5px; color: var(--dim); margin: 8px 0; line-height: 1.5; }
 .ruleGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; align-items: start; }
@@ -898,7 +910,11 @@ function connect(code) {
     try { draft = await api("/api/draft/" + code); routeDraft(); } catch {}
   }, 3500);
 }
-function leaveDraft() { if (ws) { try { ws.close(); } catch {} ws = null; } if (pollT) { clearInterval(pollT); pollT = null; } }
+function leaveDraft() {
+  if (ws) { try { ws.close(); } catch {} ws = null; }
+  if (pollT) { clearInterval(pollT); pollT = null; }
+  for (const k in vsSelection) delete vsSelection[k];
+}
 
 function routeDraft() {
   if (!draft) return;
@@ -1162,6 +1178,7 @@ for (const [btn, inp] of [["lobbyChatSend", "lobbyChatIn"], ["roomChatSend", "ro
 
 // ================= matchup / scoring =================
 let scoresCache = {}, scoresDetail = {}, projCache = {}, scoresT = null;
+const vsSelection = {}; // targetId -> { left: seatIdx, right: seatIdx }
 async function fetchScores() {
   if (!draft || draft.local) return;
   try {
@@ -1181,45 +1198,76 @@ function seatTotals() {
 }
 function renderMatchup(targetId) {
   const rows = seatTotals();
-  const anyScores = rows.some((r) => r.pts > 0);
-  $(targetId).innerHTML = rows.map((r, rank) => `
-    <div class="muRow ${rank === 0 && r.pts > 0 ? "first" : ""}" data-mu="${r.i}">
-      <span class="rank">${rank === 0 && r.pts > 0 ? "👑" : "#" + (rank + 1)}</span>
-      ${avHtml(r.seat)}
-      <span class="who">${esc(r.seat.name)}${r.seat.userId === me.id ? ' <span style="color:var(--green);font-size:11px">YOU</span>' : ""}</span>
-      <span style="text-align:right;line-height:1.2">
-        <span class="pts">${r.pts.toFixed(1)}</span>
-        ${r.proj > 0 ? `<br><span style="font-size:11px;color:var(--dim)">proj ${r.proj.toFixed(1)}</span>` : ""}
-      </span>
-      <span class="chev">▼</span>
-    </div>
-    <div class="muDetail" id="mu${r.i}">
-      ${r.seat.roster.length ? r.seat.roster.map((p) => {
-        const sc = scoresCache[p.n];
-        const pr = projCache[p.n];
-        const pts = sc?.pts || 0;
-        const days = scoresDetail[p.n] || [];
-        const log = days.map((d) => `<div class="muP" style="opacity:.7"><div class="muPTop"><span class="nm2" style="color:var(--dim);font-size:11px">↳ ${d.day.slice(5)}</span><span class="pp" style="color:var(--dim);font-size:12px">${d.pts.toFixed(1)}</span></div><div class="ln">${esc(d.line)}</div></div>`).join("");
-        const projStr = pr ? `<span class="projSm">proj ${pr.proj.toFixed(1)}</span>` : "";
-        return `<div class="muP">
-          <div class="muPTop">
-            <span class="nm2">${esc(p.n)}<span class="ptag">${p.sp} ${p.pos}</span></span>
-            ${projStr}
-            <span class="pp ${pts === 0 ? "zero" : ""}">${pts > 0 ? "+" : ""}${pts.toFixed(1)}</span>
-          </div>
-          <div class="ln">${sc?.line ? esc(sc.line) : '<span style="color:var(--dim)">no stats yet</span>'}</div>
-        </div>${log}`;
-      }).join("") : '<div class="muP"><span class="ln" style="color:var(--dim)">No picks yet</span></div>'}
-    </div>`).join("") +
-    `<div class="scoreNote">Tap a row to expand · proj = 30-day avg · updates every 5 min${draft.scoring ? ` · ends ${new Date(draft.scoring.end).toLocaleDateString()}` : ""}</div>`;
-  $(targetId).onclick = (e) => {
-    const row = e.target.closest("[data-mu]");
-    if (!row) return;
-    const i = row.getAttribute("data-mu");
-    const detail = $("mu" + i);
-    const open = detail.classList.toggle("open");
-    row.classList.toggle("expanded", open);
-  };
+  if (rows.length < 2) {
+    $(targetId).innerHTML = '<div class="emptyBox"><div class="e">⚔️</div>Need at least 2 drafters.</div>';
+    return;
+  }
+
+  // Initialize or validate selection
+  const sel = vsSelection[targetId] || (vsSelection[targetId] = { left: rows[0].i, right: rows[1].i });
+  if (!rows.find((r) => r.i === sel.left)) sel.left = rows[0].i;
+  if (!rows.find((r) => r.i === sel.right) || sel.right === sel.left)
+    sel.right = (rows.find((r) => r.i !== sel.left) || rows[1]).i;
+
+  const lData = rows.find((r) => r.i === sel.left) || rows[0];
+  const rData = rows.find((r) => r.i === sel.right) || rows[1];
+  const multi = rows.length >= 3;
+
+  // ── player chips (3+ drafters only) ──
+  const chipsHtml = multi
+    ? `<div class="vsChips">${rows.map((r) => {
+        const cls = r.i === sel.left ? " vsL" : r.i === sel.right ? " vsR" : "";
+        return `<button class="vsChip${cls}" data-vsi="${r.i}">${avHtml(r.seat)}<span>${esc(r.seat.name)}</span><span class="vsChipPts">${r.pts.toFixed(1)}</span></button>`;
+      }).join("")}</div>`
+    : "";
+
+  // ── column headers ──
+  const lWin = lData.pts > rData.pts && lData.pts > 0;
+  const rWin = rData.pts > lData.pts && rData.pts > 0;
+  const hdr = (d, win) => `<div class="vsHdr${win ? " vsWin" : ""}">
+    ${avHtml(d.seat)}
+    <div class="vsHdrName">${esc(d.seat.name)}${d.seat.userId === me.id ? ' <span class="vsYou">YOU</span>' : ""}</div>
+    <div class="vsHdrPts">${d.pts.toFixed(1)}</div>
+    ${d.proj > 0 ? `<div class="vsSubPts">proj ${d.proj.toFixed(1)}</div>` : ""}
+    ${win ? `<div class="vsCrown">👑</div>` : ""}
+  </div>`;
+
+  // ── pick rows (one grid row per draft round) ──
+  const maxLen = Math.max(lData.seat.roster.length, rData.seat.roster.length);
+  const pickRows = Array.from({ length: maxLen }, (_, i) => {
+    const alt = i % 2 === 1 ? " vsAlt" : "";
+    const cell = (p) => {
+      if (!p) return `<div class="vsCell${alt}"><span class="vsEmpty">—</span></div>`;
+      const pts = scoresCache[p.n]?.pts ?? 0;
+      const pr = projCache[p.n];
+      const ptsHtml = pts !== 0
+        ? `<span class="vsGreen">${pts > 0 ? "+" : ""}${pts.toFixed(1)}</span>`
+        : `<span class="vsDimTxt">no stats</span>`;
+      return `<div class="vsCell${alt}">
+        <div class="vsRd">R${i + 1}</div>
+        <div class="vsPn">${esc(p.n)}</div>
+        <div class="vsMeta">${p.sp} ${p.pos} · ${ptsHtml}${pr ? ` <span class="vsDimTxt">/ ${pr.proj.toFixed(1)}p</span>` : ""}</div>
+      </div>`;
+    };
+    return cell(lData.seat.roster[i]) + cell(rData.seat.roster[i]);
+  }).join("");
+
+  $(targetId).innerHTML = chipsHtml +
+    `<div class="vsGrid">${hdr(lData, lWin)}${hdr(rData, rWin)}${pickRows}</div>` +
+    `<div class="scoreNote">${multi ? "Tap a name above to compare · " : ""}proj = 30-day avg · updates every 5 min${draft.scoring ? ` · ends ${new Date(draft.scoring.end).toLocaleDateString()}` : ""}</div>`;
+
+  // ── chip tap: tapped chip becomes left, old left shifts to right ──
+  if (multi) {
+    $(targetId).querySelector(".vsChips").addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-vsi]");
+      if (!btn) return;
+      const clicked = +btn.getAttribute("data-vsi");
+      if (clicked === sel.left) return; // already on left, no-op
+      sel.right = sel.left;
+      sel.left = clicked;
+      renderMatchup(targetId);
+    });
+  }
 }
 
 // ================= results =================
