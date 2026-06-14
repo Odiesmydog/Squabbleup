@@ -246,6 +246,18 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
 .slotRow { display: flex; align-items: center; gap: 12px; background: var(--panel); border-radius: var(--r); padding: 10px 14px; margin-bottom: 8px; box-shadow: 0 3px 0 #232120; overflow: hidden; }
 .slotPos { font-family: var(--display); font-weight: 700; font-size: 20px; color: var(--gold); width: 28px; text-align: center; flex-shrink: 0; }
 .slotName { font-weight: 800; font-size: 15px; flex: 1; color: var(--green); display: inline-block; will-change: transform, opacity; transform-origin: center center; }
+/* public lobby room cards */
+.pubCard { display: flex; align-items: center; gap: 12px; background: var(--panel); border-radius: var(--r); padding: 11px 12px; margin-bottom: 8px; box-shadow: 0 3px 0 #232120; }
+.pubSport { font-size: 26px; flex-shrink: 0; width: 36px; text-align: center; }
+.pubInfo { flex: 1; min-width: 0; }
+.pubName { font-weight: 800; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pubMeta { font-size: 11.5px; color: var(--dim); margin-top: 1px; }
+.pubSeats { display: flex; gap: 5px; align-items: center; margin-top: 6px; }
+.sDot { width: 9px; height: 9px; border-radius: 50%; background: var(--green); flex-shrink: 0; }
+.sDotE { width: 9px; height: 9px; border-radius: 50%; border: 1.5px dashed var(--line); flex-shrink: 0; }
+.pubJoin { font-family: var(--display); font-weight: 700; font-size: 13px; background: var(--green); color: var(--ink); border-radius: 10px; padding: 9px 15px; box-shadow: 0 3px 0 var(--green-d); flex-shrink: 0; }
+.pubJoin:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--green-d); }
+.pubEmpty { text-align: center; color: var(--dim); font-size: 13px; padding: 18px 0 8px; }
 </style>
 </head>
 <body>
@@ -267,6 +279,9 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
     </div>
     <button class="big" id="newDraft" style="margin-bottom:10px">+ New online Squabble</button>
     <button class="big flat" id="newLocal">📱 Pass & play (one phone)</button>
+    <div class="stepLbl" style="margin-top:18px">🌐 Open Squabbles</div>
+    <p class="sub" style="margin-top:-6px;margin-bottom:10px">Public rooms — walk right in.</p>
+    <div id="pubRooms"></div>
   </section>
 
   <!-- TAB: UPCOMING DRAFTS -->
@@ -439,6 +454,11 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
     <div class="choiceGrid two" id="roundGrid">
       <button class="choice sel" data-rd="3"><span class="e">⚡</span>Quick · 3</button>
       <button class="choice" data-rd="6"><span class="e">🏆</span>Full · 6</button>
+    </div>
+    <div class="stepLbl">3 · Who can join?</div>
+    <div class="choiceGrid two" id="visGrid">
+      <button class="choice sel" data-vis="private"><span class="e">🔒</span>Friends only</button>
+      <button class="choice" data-vis="public"><span class="e">🌐</span>Open to all</button>
     </div>
     <div style="margin:18px 0 8px;font-family:var(--display);font-size:20px;font-weight:700;color:var(--gold);letter-spacing:.5px">🤝 HANDSHAKE MODE <span style="color:var(--dim);font-size:13px;font-weight:600;letter-spacing:0">(optional)</span></div>
     <input id="hsStakeIn" maxlength="40" placeholder='e.g. "$10 each" or "winner buys drinks"' style="width:100%;box-sizing:border-box" />
@@ -691,6 +711,13 @@ async function gotoTab(t) {
   document.querySelectorAll(".bnav button").forEach((b) => b.classList.toggle("on", b.getAttribute("data-bt") === t));
   $("bnav").style.display = "flex";
   show(TABSCR[t]);
+  // Start/stop public lobby polling
+  if (t === "home") {
+    fetchPublicRooms();
+    if (!_pubPollT) _pubPollT = setInterval(fetchPublicRooms, 20000);
+  } else {
+    clearInterval(_pubPollT); _pubPollT = null;
+  }
   // Show stale data instantly, then refresh in background
   if (homeData) { renderTabs(); if (t === "profile") renderProfileTab(); }
   try {
@@ -707,8 +734,56 @@ document.addEventListener("click", (e) => {
   const nav = e.target.closest("[data-nav]")?.getAttribute("data-nav");
   if (nav === "home") { leaveDraft(); loadHome(); }
 });
-$("newDraft").addEventListener("click", () => { show("scrNew"); });
+$("newDraft").addEventListener("click", () => {
+  // reset wizard to defaults
+  wizPublic = false;
+  document.querySelectorAll("#visGrid .choice").forEach((c, i) => c.classList.toggle("sel", i === 0));
+  show("scrNew");
+});
 function loadHome() { gotoTab(curTab in TABSCR ? curTab : "home"); }
+
+// ── Public lobby ──
+const SPORTEMOJI = { NFL:"🏈", NBA:"🏀", MLB:"⚾", NHL:"🏒", GOLF:"⛳", TEN:"🎾", CBB:"🏀", CFB:"🏈", UFC:"🥊", WCUP:"🌍", SOC:"⚽" };
+let _pubPollT = null;
+async function fetchPublicRooms() {
+  try {
+    const { rooms } = await api("/api/lobby");
+    renderPublicRooms(rooms);
+  } catch {}
+}
+function renderPublicRooms(rooms) {
+  const el = $("pubRooms"); if (!el) return;
+  if (!rooms.length) {
+    el.innerHTML = '<div class="pubEmpty">No open squabbles right now.<br>Create one with "Open to all" to let anyone in!</div>';
+    return;
+  }
+  el.innerHTML = rooms.map((r) => {
+    const dots = Array.from({length: 8}, (_, i) =>
+      `<span class="${i < r.seats ? "sDot" : "sDotE"}"></span>`
+    ).join("");
+    const open = 8 - r.seats;
+    return `<div class="pubCard">
+      <div class="pubSport">${SPORTEMOJI[r.sport] || "🎮"}</div>
+      <div class="pubInfo">
+        <div class="pubName">${esc(r.name)}</div>
+        <div class="pubMeta">${esc(r.host.av || "")} ${esc(r.host.name)} · ${r.rounds} rounds</div>
+        <div class="pubSeats">${dots}<span style="font-size:11px;color:var(--dim);margin-left:4px">${open} open</span></div>
+      </div>
+      ${open > 0 ? `<button class="pubJoin" data-pjoin="${esc(r.code)}">Join</button>` : '<span style="font-size:12px;color:var(--dim);flex-shrink:0">Full</span>'}
+    </div>`;
+  }).join("");
+}
+$("pubRooms").addEventListener("click", async (e) => {
+  const code = e.target.getAttribute("data-pjoin"); if (!code) return;
+  e.target.disabled = true;
+  try {
+    await api(`/api/draft/${code}/join`, { userId: me.id, name: me.name, av: me.av, img: me.img });
+    joinByCode(code);
+  } catch (err) {
+    toast(err.message || "Couldn't join");
+    e.target.disabled = false;
+  }
+});
 
 function dCardHtml(d, opts = {}) {
   const st = d.status === "done"
@@ -871,7 +946,7 @@ async function shareText(text, url) {
 }
 
 // ================= wizard =================
-let wizSport = "NFL", wizRounds = 3;
+let wizSport = "NFL", wizRounds = 3, wizPublic = false;
 $("sportGrid").addEventListener("click", (e) => {
   const b = e.target.closest(".choice"); if (!b) return;
   document.querySelectorAll("#sportGrid .choice").forEach((c) => c.classList.remove("sel"));
@@ -881,6 +956,11 @@ $("roundGrid").addEventListener("click", (e) => {
   const b = e.target.closest(".choice"); if (!b) return;
   document.querySelectorAll("#roundGrid .choice").forEach((c) => c.classList.remove("sel"));
   b.classList.add("sel"); wizRounds = +b.getAttribute("data-rd");
+});
+$("visGrid").addEventListener("click", (e) => {
+  const b = e.target.closest(".choice"); if (!b) return;
+  document.querySelectorAll("#visGrid .choice").forEach((c) => c.classList.remove("sel"));
+  b.classList.add("sel"); wizPublic = b.getAttribute("data-vis") === "public";
 });
 $("createDraft").addEventListener("click", async (e) => {
   const btn = e.currentTarget;
@@ -892,6 +972,7 @@ $("createDraft").addEventListener("click", async (e) => {
       hostId: me.id, sport: wizSport, rounds: wizRounds,
       name: SPORTNAMES[wizSport] + " squabble",
       handshake: stake ? { stake, agreed: [] } : null,
+      public: wizPublic,
     });
     $("hsStakeIn").value = "";
     joinByCode(code);

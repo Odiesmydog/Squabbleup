@@ -272,7 +272,7 @@ app.post("/api/user/friendcode", ah(async (req, res) => {
 
 // create draft (lobby)
 app.post("/api/draft/create", ah(async (req, res) => {
-  const { hostId, sport, rounds, name, handshake } = req.body;
+  const { hostId, sport, rounds, name, handshake, public: isPublic } = req.body;
   const u = (await pool.query("SELECT * FROM users WHERE id=$1", [hostId])).rows[0];
   if (!u) return res.status(404).json({ error: "register first" });
   let code;
@@ -282,12 +282,29 @@ app.post("/api/draft/create", ah(async (req, res) => {
     sport: ["NFL","NBA","MLB","NHL","GOLF","TEN","CBB","CFB","UFC","WCUP","SOC"].includes(sport) ? sport : "NFL",
     rounds: [3, 6].includes(+rounds) ? +rounds : 3,
     status: "lobby", hostId,
+    public: isPublic === true,
     seats: [{ userId: hostId, name: u.name, av: u.av, img: u.img, bot: false, roster: [] }],
     picks: [], chat: [],
     handshake: handshake?.stake ? { stake: String(handshake.stake).slice(0, 60), agreed: [] } : null,
   };
   await pool.query("INSERT INTO drafts (code, state, participants) VALUES ($1,$2,$3)", [code, state, [hostId]]);
   res.json({ code });
+}));
+
+// Public lobby — open squabbles anyone can join
+app.get("/api/lobby", ah(async (req, res) => {
+  const r = await pool.query(
+    `SELECT code, state FROM drafts WHERE (state->>'status')='lobby' AND (state->>'public')='true' ORDER BY created DESC LIMIT 20`
+  );
+  const rooms = r.rows.map(({ code, state: s }) => ({
+    code,
+    name: s.name,
+    sport: s.sport,
+    rounds: s.rounds,
+    host: { name: s.seats[0]?.name, av: s.seats[0]?.av },
+    seats: s.seats.length,
+  }));
+  res.json({ rooms });
 }));
 
 app.post("/api/draft/:code/handshake", ah(async (req, res) => {
