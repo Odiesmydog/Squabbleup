@@ -134,9 +134,12 @@ async function _fetchSchedule(sport) {
   if (sport === "GOLF") {
     try {
       const sb = await jget("https://site.api.espn.com/apis/site/v2/sports/golf/pga/scoreboard");
-      const active = (sb.events || []).filter((ev) => ev.status?.type?.state === "pre");
+      // include "pre" (upcoming) and "in" (in-progress) tournaments — exclude only finished ("post")
+      const active = (sb.events || []).filter((ev) => ev.status?.type?.state !== "post");
       if (!active.length) return { players: null, matchups: {}, roster: [] };
-      const tournName = active[0]?.shortName || active[0]?.name || "PGA Tour";
+      // prefer "in" (live) over "pre" for the tournament name
+      const ev0 = active.find((e) => e.status?.type?.state === "in") || active[0];
+      const tournName = ev0?.shortName || ev0?.name || "PGA Tour";
       const names = new Set(); const matchups = {}; const roster = [];
       for (const p of PLAYERS.filter((x) => x.sp === "GOLF")) { names.add(p.n); matchups[p.tm] = tournName; roster.push(p); }
       return { players: names.size > 0 ? names : null, matchups, roster };
@@ -163,7 +166,9 @@ async function _fetchSchedule(sport) {
           if (cs.length < 2) continue;
           const [aN, bN] = [cs[0], cs[1]].map((c) => c.athlete?.displayName);
           if (!aN || !bN) continue;
-          const pos = WT[(comp.type?.text || "").toLowerCase()] || "MMA";
+          // comp.type.text may be "Lightweight Championship", "Middleweight", etc. — use includes()
+          const wtText = (comp.type?.text || comp.type?.name || "").toLowerCase();
+          const pos = Object.entries(WT).find(([k]) => wtText.includes(k))?.[1] || "MMA";
           names.add(aN); names.add(bN);
           roster.push({ n: aN, pos, tm: "vs " + short(bN), sp: "UFC" });
           roster.push({ n: bN, pos, tm: "vs " + short(aN), sp: "UFC" });
@@ -178,9 +183,11 @@ async function _fetchSchedule(sport) {
     for (const tour of ["atp", "wta"]) {
       try {
         const sb = await jget(`https://site.api.espn.com/apis/site/v2/sports/tennis/${tour}/scoreboard?dates=${day}`);
-        const active = (sb.events || []).filter((ev) => ev.status?.type?.state === "pre");
+        // include "pre" (upcoming) and "in" (in-progress) — exclude only "post" (finished)
+        const active = (sb.events || []).filter((ev) => ev.status?.type?.state !== "post");
         if (!active.length) continue;
-        const tournName = active[0]?.shortName || active[0]?.name || `${tour.toUpperCase()} Tennis`;
+        const ev0 = active.find((e) => e.status?.type?.state === "in") || active[0];
+        const tournName = ev0?.shortName || ev0?.name || `${tour.toUpperCase()} Tennis`;
         const pos = tour === "atp" ? "ATP" : "WTA";
         for (const p of PLAYERS.filter((x) => x.sp === "TEN" && x.pos === pos)) { names.add(p.n); matchups[p.tm] = tournName; roster.push(p); }
       } catch {}
