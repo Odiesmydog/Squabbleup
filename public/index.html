@@ -1093,7 +1093,7 @@ $("invList").addEventListener("click", async (e) => {
 $("invClose").addEventListener("click", () => $("invModal").classList.remove("on"));
 
 // ================= draft room =================
-const OUT_STATUS = new Set(["O", "IR"]);
+const OUT_STATUS = new Set(["O", "IR", "IL"]);
 function availPlayers() {
   const taken = new Set(draft.picks.map((p) => p.player));
   // use live ESPN roster when available (full team rosters); fall back to static list

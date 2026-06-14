@@ -415,7 +415,7 @@ async function seedDemo(pool) {
 }
 
 // ─── Sleeper API integration ─────────────────────────────────────────────────
-const SLEEPER_SPORT = { NBA: "nba", NFL: "nfl" };
+const SLEEPER_SPORT = { NBA: "nba", NFL: "nfl", MLB: "baseball", NHL: "hockey" };
 
 // Sleeper stat keys → our RULES keys
 const SLEEPER_STAT_MAP = {
@@ -453,9 +453,15 @@ async function sleeperPlayerMap(sport) {
     const map = new Map(); // norm(fullName) → { id, status, thumb }
     for (const [id, p] of Object.entries(raw || {})) {
       if (!p.full_name) continue;
-      // Sleeper returns full words ("Out", "Questionable") — normalize to short codes
+      // Sleeper returns full words or abbrevs depending on sport — normalize all to short codes
       const rawInj = p.injury_status || null;
-      const INJ_NORM = { Questionable: "Q", Doubtful: "D", Out: "O", Probable: "P", "Injured Reserve": "IR" };
+      const INJ_NORM = {
+        Questionable: "Q", Doubtful: "D", Out: "O", Probable: "P",
+        "Injured Reserve": "IR", IR: "IR",       // NHL uses short "IR"
+        "Day-To-Day": "Q", DTD: "Q",             // baseball/hockey day-to-day ≈ questionable
+        IL10: "IL", IL15: "IL", IL60: "IL",      // baseball injured list tiers
+        IL: "IL", "10-Day IL": "IL", "15-Day IL": "IL", "60-Day IL": "IL",
+      };
       const status = INJ_NORM[rawInj] || rawInj;
       map.set(norm(p.full_name), {
         id,
