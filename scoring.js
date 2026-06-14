@@ -12,6 +12,7 @@ const LEAGUES = {
   CBB: ["basketball", "mens-college-basketball"],
   MLB: ["baseball", "mlb"],
   NHL: ["hockey", "nhl"],
+  UFC: ["mma", "ufc"],
 };
 
 // ESPN scoreboard uses 2-letter abbreviations for some NBA teams; expand to match players-data
@@ -36,7 +37,7 @@ const RULES = {
   // NHL uses BS (blocked shots) label, not BLK
   hockey: { "*:G": 8, "*:A": 5, "*:SOG": 1.5, "*:BS": 1.3, "*:SV": 0.7, "*:GA": -3.5 },
 };
-const FAMILY = { NFL: "football", CFB: "football", NBA: "basketball", CBB: "basketball", MLB: "baseball", NHL: "hockey" };
+const FAMILY = { NFL: "football", CFB: "football", NBA: "basketball", CBB: "basketball", MLB: "baseball", NHL: "hockey", UFC: "mma" };
 
 // golf placement points (final leaderboard position)
 function golfPoints(pos) {
@@ -139,6 +140,36 @@ async function _fetchSchedule(sport) {
       const names = new Set(); const matchups = {}; const roster = [];
       for (const p of PLAYERS.filter((x) => x.sp === "GOLF")) { names.add(p.n); matchups[p.tm] = tournName; roster.push(p); }
       return { players: names.size > 0 ? names : null, matchups, roster };
+    } catch { return { players: null, matchups: {}, roster: [] }; }
+  }
+  // UFC: fighters from tonight's card
+  if (sport === "UFC") {
+    const day = dstr(new Date());
+    try {
+      const sb = await jget(`https://site.api.espn.com/apis/site/v2/sports/mma/ufc/scoreboard?dates=${day}`);
+      if (!sb.events?.length) return { players: null, matchups: {}, roster: [] };
+      const WT = {
+        heavyweight: "HW", "light heavyweight": "LHW", middleweight: "MW",
+        welterweight: "WW", lightweight: "LW", featherweight: "FW",
+        bantamweight: "BW", flyweight: "FLW", "women's strawweight": "WSW",
+        "women's flyweight": "WFLW", "women's bantamweight": "WBW", "women's featherweight": "WFW",
+      };
+      const short = (n) => { const p = n.trim().split(" "); return p.length >= 2 ? p[0][0] + ". " + p[p.length - 1] : n; };
+      const names = new Set(); const roster = [];
+      for (const ev of sb.events || []) {
+        for (const comp of ev.competitions || []) {
+          if (comp.status?.type?.state === "post") continue;
+          const cs = comp.competitors || [];
+          if (cs.length < 2) continue;
+          const [aN, bN] = [cs[0], cs[1]].map((c) => c.athlete?.displayName);
+          if (!aN || !bN) continue;
+          const pos = WT[(comp.type?.text || "").toLowerCase()] || "MMA";
+          names.add(aN); names.add(bN);
+          roster.push({ n: aN, pos, tm: "vs " + short(bN), sp: "UFC" });
+          roster.push({ n: bN, pos, tm: "vs " + short(aN), sp: "UFC" });
+        }
+      }
+      return { players: names.size > 0 ? names : null, matchups: {}, roster };
     } catch { return { players: null, matchups: {}, roster: [] }; }
   }
   // Tennis: check ATP/WTA events today
@@ -244,6 +275,35 @@ async function pollLeagueDay(pool, sport, dayDate) {
   let sb;
   try { sb = await jget(`https://site.api.espn.com/apis/site/v2/sports/${s}/${l}/scoreboard?dates=${day}`); }
   catch (e) { console.error("scoreboard", sport, e.message); return; }
+
+  // UFC: score directly from competition results — no boxscore.players
+  if (sport === "UFC") {
+    for (const ev of sb.events || []) {
+      for (const comp of ev.competitions || []) {
+        if (!comp.status?.type?.completed) continue;
+        const winner = comp.competitors?.find((c) => c.winner);
+        const loser  = comp.competitors?.find((c) => !c.winner);
+        if (!winner?.athlete?.displayName) continue;
+        const detail = comp.status?.type?.detail || "";
+        const u = detail.toUpperCase();
+        let pts = 10; const parts = ["W"];
+        if (u.includes("KO") || u.includes("TKO")) { pts += 5; parts.push("KO/TKO"); }
+        else if (u.includes("SUB")) { pts += 5; parts.push("Sub"); }
+        else parts.push("Dec");
+        const rm = detail.match(/R(?:ound\s*)?(\d+)/i);
+        if (rm?.[1] === "1") { pts += 3; parts.push("R1"); }
+        else if (rm?.[1] === "2") { pts += 1; parts.push("R2"); }
+        const wName = matchPool(idx, winner.athlete.displayName) || winner.athlete.displayName;
+        await upsertScore(pool, dayDate, "UFC", wName, pts, parts.join(" · "));
+        if (loser?.athlete?.displayName) {
+          const lName = matchPool(idx, loser.athlete.displayName) || loser.athlete.displayName;
+          await upsertScore(pool, dayDate, "UFC", lName, 0, "L");
+        }
+      }
+    }
+    return;
+  }
+
   for (const ev of sb.events || []) {
     const state = ev.status?.type?.state;
     if (state === "pre") continue;

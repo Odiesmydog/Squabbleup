@@ -352,6 +352,15 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
         <div class="ruleLine"><span>Match win</span><span>+10</span></div>
         <div class="ruleNote">Wins stack — 3 wins in a day = 30 pts</div>
       </div>
+      <div class="ruleCard">
+        <div class="ruleHead">🥊 UFC / MMA</div>
+        <div class="ruleLine"><span>Win (any method)</span><span>+10</span></div>
+        <div class="ruleLine"><span>KO or TKO finish</span><span>+5</span></div>
+        <div class="ruleLine"><span>Submission finish</span><span>+5</span></div>
+        <div class="ruleLine"><span>Round 1 finish</span><span>+3</span></div>
+        <div class="ruleLine"><span>Round 2 finish</span><span>+1</span></div>
+        <div class="ruleNote">Max: 18 pts (R1 KO/TKO or Sub). Decision win = 10 pts. Draft fighters on tonight's card.</div>
+      </div>
     </div>
   </section>
 
@@ -410,6 +419,7 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
       <button class="choice" data-sp="TEN"><span class="e">🎾</span>Tennis</button>
       <button class="choice" data-sp="CBB"><span class="e">🏀</span>NCAA BB</button>
       <button class="choice" data-sp="CFB"><span class="e">🏈</span>NCAA FB</button>
+      <button class="choice" data-sp="UFC"><span class="e">🥊</span>UFC</button>
     </div>
     <div class="stepLbl">2 · How many rounds?</div>
     <div class="choiceGrid two" id="roundGrid">
@@ -540,6 +550,7 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
       <button class="choice" data-sp="TEN"><span class="e">🎾</span>Tennis</button>
       <button class="choice" data-sp="CBB"><span class="e">🏀</span>NCAA BB</button>
       <button class="choice" data-sp="CFB"><span class="e">🏈</span>NCAA FB</button>
+      <button class="choice" data-sp="UFC"><span class="e">🥊</span>UFC</button>
     </div>
     <div class="lbl">Rounds</div>
     <div class="choiceGrid two" id="localRoundGrid" style="margin-bottom:10px">
@@ -607,7 +618,7 @@ async function api(path, body) {
   return j;
 }
 const EMOJIS = ["🙂","😎","🤠","👑","🦊","🐻","🦁","🐸","🐼","🦅","🐉","🦈","🔥","⚡","🍀","🎯","🚀","🤖","👻","🥶","😤","🧊","💪","🃏"];
-const SPORTNAMES = { ALL: "All-sports", NFL: "NFL", NBA: "NBA", MLB: "MLB", NHL: "NHL", GOLF: "Golf", TEN: "Tennis", CBB: "NCAA BB", CFB: "NCAA FB" };
+const SPORTNAMES = { ALL: "All-sports", NFL: "NFL", NBA: "NBA", MLB: "MLB", NHL: "NHL", GOLF: "Golf", TEN: "Tennis", CBB: "NCAA BB", CFB: "NCAA FB", UFC: "UFC" };
 
 // ================= identity =================
 let me = JSON.parse(localStorage.getItem("squp_me") || "null");
@@ -1135,7 +1146,8 @@ function renderRoom() {
   const note = $("noGamesNote");
   if (nextGameDay) {
     note.style.display = "block";
-    note.innerHTML = `<div class="noGamesBox">No ${SPORTNAMES[draft.sport] || draft.sport} games today — next matches on <strong>${nextGameDay}</strong>. You're drafting now for those games.</div>`;
+    const eventWord = draft.sport === "UFC" ? "fights" : "games";
+    note.innerHTML = `<div class="noGamesBox">No ${SPORTNAMES[draft.sport] || draft.sport} ${eventWord} today — next card on <strong>${nextGameDay}</strong>. You're drafting now for those ${eventWord}.</div>`;
   } else { note.style.display = "none"; }
 
   const posPool = todaysRoster.length > 0 ? todaysRoster : PLAYERS.filter((p) => draft.sport === "ALL" || p.sp === draft.sport);
@@ -1525,15 +1537,22 @@ const _isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
 const _isStandalone = window.navigator.standalone === true || window.matchMedia("(display-mode: standalone)").matches;
 let _deferredInstall = null;
 
+// Dismiss check: time-based (30 days). Old "1" value → epoch 1ms → always expired → shows again.
+function _installDismissed() {
+  const t = parseInt(localStorage.getItem("squp_install_dismissed") || "0");
+  return t > 1000000 && (Date.now() - t) < 30 * 864e5;
+}
+function _dismissInstall() { localStorage.setItem("squp_install_dismissed", String(Date.now())); }
+
 // Android: capture install prompt
 window.addEventListener("beforeinstallprompt", e => {
   e.preventDefault();
   _deferredInstall = e;
-  if (!localStorage.getItem("squp_install_dismissed")) _showInstallBanner("android");
+  if (!_installDismissed()) _showInstallBanner("android");
 });
 
 // iOS: show instructions if not already installed
-if (_isIOS && !_isStandalone && !localStorage.getItem("squp_install_dismissed")) {
+if (_isIOS && !_isStandalone && !_installDismissed()) {
   _showInstallBanner("ios");
 }
 
@@ -1548,12 +1567,12 @@ function _showInstallBanner(type) {
     ${ios ? "" : `<button class="iBtn" id="installBtn">Install</button>`}
     <button class="iClose" id="installClose">✕</button>`;
   document.body.appendChild(el);
-  $("installClose").addEventListener("click", () => { el.remove(); localStorage.setItem("squp_install_dismissed", "1"); });
+  $("installClose").addEventListener("click", () => { el.remove(); _dismissInstall(); });
   if (!ios) $("installBtn").addEventListener("click", async () => {
     if (!_deferredInstall) return;
     _deferredInstall.prompt();
     const { outcome } = await _deferredInstall.userChoice;
-    if (outcome === "accepted") { el.remove(); localStorage.setItem("squp_install_dismissed", "1"); }
+    if (outcome === "accepted") { el.remove(); _dismissInstall(); }
     _deferredInstall = null;
   });
 }
