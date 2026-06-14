@@ -1019,7 +1019,20 @@ function connect(code) {
     ws = new WebSocket(`${proto}://${location.host}/ws?draft=${code}`);
     ws.onmessage = (e) => {
       const m = JSON.parse(e.data);
-      if (m.type === "state") { draft = m.state; routeDraft(); }
+      if (m.type === "state") {
+        const prevSeats = draft?.seats?.length || 0;
+        draft = m.state;
+        // alert host when someone joins a public room
+        if (draft.public && draft.hostId === me.id && draft.status === "lobby" && draft.seats.length > prevSeats) {
+          const newcomer = draft.seats[draft.seats.length - 1];
+          if (draft.seats.length >= 8) {
+            toast("Room is full — hit Start!");
+          } else {
+            toast(`${newcomer?.name || "Someone"} joined · ${draft.seats.length}/8`);
+          }
+        }
+        routeDraft();
+      }
     };
   } catch {}
   pollT = setInterval(async () => {
@@ -1058,6 +1071,7 @@ function renderLobby() {
       </div>`).join("");
   }
   $("hostTools").style.display = isHost ? "block" : "none";
+  if (isHost) $("lobbyShuffle").style.display = draft.public ? "none" : "";
   $("codeEditBtn").style.display = isHost ? "inline-block" : "none";
 
   // handshake mode

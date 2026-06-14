@@ -410,16 +410,19 @@ app.post("/api/draft/:code/start", ah((req, res) => hostAction(req, res, (st) =>
     const nonBots = st.seats.filter((s) => !s.bot);
     if (!nonBots.every((s) => st.handshake.agreed.includes(s.userId))) return "Everyone must shake on it before starting";
   }
+  if (st.public) shuffleSeats(st); // auto-shuffle open rooms so no one gets first pick advantage
   st.status = "active";
 })));
 
-app.post("/api/draft/:code/shuffle", ah((req, res) => hostAction(req, res, (st) => {
-  if (st.status !== "lobby") return "Draft already started";
+function shuffleSeats(st) {
   for (let i = st.seats.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [st.seats[i], st.seats[j]] = [st.seats[j], st.seats[i]];
   }
-  st.chat.push({ name: "🎲", av: "🎲", img: "", text: "Draft order shuffled! New order: " + st.seats.map((x) => x.name).join(" → "), t: Date.now() });
+}
+app.post("/api/draft/:code/shuffle", ah((req, res) => hostAction(req, res, (st) => {
+  if (st.status !== "lobby") return "Draft already started";
+  shuffleSeats(st);
 })));
 
 // leave a lobby draft (non-host removes self; host with no others deletes it)
