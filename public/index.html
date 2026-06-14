@@ -455,15 +455,7 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
       <button class="choice sel" data-rd="3"><span class="e">⚡</span>Quick · 3</button>
       <button class="choice" data-rd="6"><span class="e">🏆</span>Full · 6</button>
     </div>
-    <div class="stepLbl">3 · How many players?</div>
-    <div class="choiceGrid" id="seatsGrid">
-      <button class="choice" data-seats="2"><span class="e">👥</span>2</button>
-      <button class="choice sel" data-seats="3"><span class="e">👥</span>3</button>
-      <button class="choice" data-seats="4"><span class="e">👥</span>4</button>
-      <button class="choice" data-seats="6"><span class="e">👥</span>6</button>
-      <button class="choice" data-seats="8"><span class="e">👥</span>8</button>
-    </div>
-    <div class="stepLbl">4 · Who can join?</div>
+    <div class="stepLbl">3 · Who can join?</div>
     <div class="choiceGrid two" id="visGrid">
       <button class="choice sel" data-vis="private"><span class="e">🔒</span>Friends only</button>
       <button class="choice" data-vis="public"><span class="e">🌐</span>Open to all</button>
@@ -743,8 +735,7 @@ document.addEventListener("click", (e) => {
   if (nav === "home") { leaveDraft(); loadHome(); }
 });
 $("newDraft").addEventListener("click", () => {
-  wizSeats = 3; wizPublic = false;
-  document.querySelectorAll("#seatsGrid .choice").forEach((c) => c.classList.toggle("sel", c.getAttribute("data-seats") === "3"));
+  wizPublic = false;
   document.querySelectorAll("#visGrid .choice").forEach((c, i) => c.classList.toggle("sel", i === 0));
   show("scrNew");
 });
@@ -766,11 +757,10 @@ function renderPublicRooms(rooms) {
     return;
   }
   el.innerHTML = rooms.map((r) => {
-    const max = r.maxSeats || 8;
-    const dots = Array.from({length: max}, (_, i) =>
+    const dots = Array.from({length: 8}, (_, i) =>
       `<span class="${i < r.seats ? "sDot" : "sDotE"}"></span>`
     ).join("");
-    const open = max - r.seats;
+    const open = 8 - r.seats;
     return `<div class="pubCard">
       <div class="pubSport">${SPORTEMOJI[r.sport] || "🎮"}</div>
       <div class="pubInfo">
@@ -955,7 +945,7 @@ async function shareText(text, url) {
 }
 
 // ================= wizard =================
-let wizSport = "NFL", wizRounds = 3, wizSeats = 3, wizPublic = false;
+let wizSport = "NFL", wizRounds = 3, wizPublic = false;
 $("sportGrid").addEventListener("click", (e) => {
   const b = e.target.closest(".choice"); if (!b) return;
   document.querySelectorAll("#sportGrid .choice").forEach((c) => c.classList.remove("sel"));
@@ -965,11 +955,6 @@ $("roundGrid").addEventListener("click", (e) => {
   const b = e.target.closest(".choice"); if (!b) return;
   document.querySelectorAll("#roundGrid .choice").forEach((c) => c.classList.remove("sel"));
   b.classList.add("sel"); wizRounds = +b.getAttribute("data-rd");
-});
-$("seatsGrid").addEventListener("click", (e) => {
-  const b = e.target.closest(".choice"); if (!b) return;
-  document.querySelectorAll("#seatsGrid .choice").forEach((c) => c.classList.remove("sel"));
-  b.classList.add("sel"); wizSeats = +b.getAttribute("data-seats");
 });
 $("visGrid").addEventListener("click", (e) => {
   const b = e.target.closest(".choice"); if (!b) return;
@@ -983,7 +968,7 @@ $("createDraft").addEventListener("click", async (e) => {
   try {
     const stake = $("hsStakeIn").value.trim();
     const { code } = await api("/api/draft/create", {
-      hostId: me.id, sport: wizSport, rounds: wizRounds, maxSeats: wizSeats,
+      hostId: me.id, sport: wizSport, rounds: wizRounds,
       name: SPORTNAMES[wizSport] + " squabble",
       handshake: stake ? { stake, agreed: [] } : null,
       public: wizPublic,
