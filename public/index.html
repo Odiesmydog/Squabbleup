@@ -278,6 +278,7 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
   <section class="screen" id="scrHome">
     <h1 class="title">Lobby</h1>
     <p class="sub">Start a squabble or jump into one.</p>
+    <div id="squabbleCount" style="display:none;text-align:center;font-size:12px;color:var(--dim);margin:-6px 0 10px;letter-spacing:.3px"></div>
     <div id="inviteList"></div>
     <div class="joinRow">
       <input id="joinCodeIn" placeholder="ROOM CODE" maxlength="12" />
@@ -787,8 +788,16 @@ const SPORTEMOJI = { NFL:"🏈", NBA:"🏀", MLB:"⚾", NHL:"🏒", GOLF:"⛳", 
 let _pubPollT = null;
 async function fetchPublicRooms() {
   try {
-    const { rooms } = await api("/api/lobby");
+    const [{ rooms }, { draftsCreated }] = await Promise.all([
+      api("/api/lobby"),
+      api("/api/stats").catch(() => ({ draftsCreated: 0 })),
+    ]);
     renderPublicRooms(rooms);
+    const el = $("squabbleCount");
+    if (el && draftsCreated > 0) {
+      el.textContent = `🔥 ${draftsCreated.toLocaleString()} squabbles drafted so far`;
+      el.style.display = "block";
+    }
   } catch {}
 }
 function renderPublicRooms(rooms) {
@@ -1553,8 +1562,10 @@ function seatTotals() {
   return draft.seats.map((s, i) => {
     const pts = s.roster.reduce((a, p) => a + (scoresCache[p.n]?.pts || 0), 0);
     const proj = s.roster.reduce((a, p) => a + (projCache[p.n]?.proj || 0), 0);
-    return { seat: s, i, pts, proj };
-  }).sort((a, b) => b.pts - a.pts);
+    // tiebreaker: count of roster players who actually scored (pts > 0)
+    const scorers = s.roster.filter((p) => (scoresCache[p.n]?.pts || 0) > 0).length;
+    return { seat: s, i, pts, proj, scorers };
+  }).sort((a, b) => b.pts - a.pts || b.scorers - a.scorers);
 }
 function renderMatchup(targetId) {
   const rows = seatTotals();
@@ -1582,12 +1593,14 @@ function renderMatchup(targetId) {
     : "";
 
   // ── column headers ──
-  const lWin = lData.pts > rData.pts && lData.pts > 0;
-  const rWin = rData.pts > lData.pts && rData.pts > 0;
+  const tied = lData.pts === rData.pts && lData.pts > 0;
+  const lWin = tied ? lData.scorers > rData.scorers : (lData.pts > rData.pts && lData.pts > 0);
+  const rWin = tied ? rData.scorers > lData.scorers : (rData.pts > lData.pts && rData.pts > 0);
   const hdr = (d, win) => `<div class="vsHdr${win ? " vsWin" : ""}">
     ${avHtml(d.seat)}
     <div class="vsHdrName">${esc(d.seat.name)}${d.seat.userId === me.id ? ' <span class="vsYou">YOU</span>' : ""}</div>
-    <div class="vsHdrPts">${d.pts.toFixed(1)}</div>
+    <div class="vsHdrPts">${d.pts.toFixed(1)}${tied && d.scorers !== (d === lData ? rData : lData).scorers ? `<span style="font-size:11px;color:var(--dim);margin-left:4px">${d.scorers}W</span>` : ""}</div>
+    ${tied && d.scorers === (d === lData ? rData : lData).scorers ? `<div style="font-size:11px;color:var(--gold);margin-top:2px">TIE</div>` : ""}
     ${d.proj > 0 ? `<div class="vsSubPts">proj ${d.proj.toFixed(1)}</div>` : ""}
     ${win ? `<div class="vsCrown">👑</div>` : ""}
   </div>`;

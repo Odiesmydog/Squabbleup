@@ -61,6 +61,11 @@ async function initDb() {
       created TIMESTAMPTZ DEFAULT now(),
       UNIQUE (user_id, endpoint)
     );
+    CREATE TABLE IF NOT EXISTS stats (
+      key TEXT PRIMARY KEY,
+      val BIGINT NOT NULL DEFAULT 0
+    );
+    INSERT INTO stats (key, val) VALUES ('drafts_created', 0) ON CONFLICT DO NOTHING;
     CREATE INDEX IF NOT EXISTS idx_drafts_participants ON drafts USING GIN(participants);
     CREATE INDEX IF NOT EXISTS idx_push_subs_user ON push_subscriptions(user_id);
     CREATE INDEX IF NOT EXISTS idx_player_scores_sport_day ON player_scores(sport, day);
@@ -151,6 +156,19 @@ async function notifyPick(userId, draftName, code) {
 // ---------------- bot picks (server-side) ----------------
 const PLAYERS = require("./public/players-data.js");
 const scoring = require("./scoring.js");
+
+// Rank-based fallback projections for sports without Sleeper coverage.
+// Uses each player's static rank to estimate a realistic fantasy point range.
+const RANK_PROJ_RANGE = {
+  NFL: [32, 4], NBA: [52, 12], MLB: [18, 2], NHL: [18, 2], CFB: [28, 4], CBB: [38, 8],
+  UFC: [16, 5], GOLF: [22, 3], TEN: [18, 0], SOC: [10, 1], WCUP: [10, 1],
+};
+function rankProj(rank, sport) {
+  const [top, bot] = RANK_PROJ_RANGE[sport] || [15, 2];
+  const r = Math.min(Math.max(rank || 100, 1), 200);
+  return Math.round((top - (top - bot) * (r - 1) / 199) * 10) / 10;
+}
+const _rankMap = new Map(PLAYERS.map((p) => [p.n, { r: p.r, sp: p.sp }]));
 const botTimers = new Map();
 function scheduleBot(code, s) {
   if (s.status !== "active" || isDone(s)) return;
@@ -289,7 +307,14 @@ app.post("/api/draft/create", ah(async (req, res) => {
     handshake: handshake?.stake ? { stake: String(handshake.stake).slice(0, 60), agreed: [] } : null,
   };
   await pool.query("INSERT INTO drafts (code, state, participants) VALUES ($1,$2,$3)", [code, state, [hostId]]);
+  pool.query("UPDATE stats SET val = val + 1 WHERE key='drafts_created'").catch(() => {});
   res.json({ code });
+}));
+
+// Public stats — total squabbles ever created
+app.get("/api/stats", ah(async (req, res) => {
+  const r = await pool.query("SELECT val FROM stats WHERE key='drafts_created'");
+  res.json({ draftsCreated: parseInt(r.rows[0]?.val || 0) });
 }));
 
 // Public lobby — open squabbles anyone can join
@@ -510,7 +535,11 @@ app.get("/api/draft/:code/projected", ah(async (req, res) => {
     scoring.projectedScores(pool, players),
     scoring.sleeperEnrich(st.sport, players).catch(() => ({ proj: {} })),
   ]);
-  res.json({ ...db, ...sleeper.proj });
+  const proj = { ...db, ...sleeper.proj };
+  for (const name of players) {
+    if (!proj[name]) { const pd = _rankMap.get(name); if (pd) proj[name] = { proj: rankProj(pd.r, pd.sp) }; }
+  }
+  res.json(proj);
 }));
 
 // teams playing today for a sport — used to filter draft pool
@@ -534,6 +563,9 @@ app.get("/api/projected/:sport", ah(async (req, res) => {
     scoring.sleeperEnrich(sport, sportPlayers).catch(() => ({ proj: {}, status: {} })),
   ]);
   const proj = { ...dbProj, ...sleeper.proj };
+  for (const name of sportPlayers) {
+    if (!proj[name]) { const pd = _rankMap.get(name); if (pd) proj[name] = { proj: rankProj(pd.r, pd.sp), source: "rank" }; }
+  }
   res.json({ proj, status: sleeper.status });
 }));
 
