@@ -405,6 +405,8 @@ app.post("/api/draft/:code/join", ah(async (req, res) => {
     if (!st.seats.some((s) => s.userId === userId)) {
       if (st.status !== "lobby") { await client.query("ROLLBACK"); return res.status(400).json({ error: "Draft already started" }); }
       if (st.seats.length >= 8) { await client.query("ROLLBACK"); return res.status(400).json({ error: "Draft is full (8 max)" }); }
+      const nameTaken = st.seats.some((s) => s.name.trim().toLowerCase() === u.name.trim().toLowerCase());
+      if (nameTaken) { await client.query("ROLLBACK"); return res.status(409).json({ error: `The name "${u.name}" is already taken in this draft — update your profile name and try again` }); }
       st.seats.push({ userId, name: u.name, av: u.av, img: u.img, bot: false, roster: [] });
       await client.query("UPDATE drafts SET state=$1, participants=array_append(participants,$2), updated=now() WHERE code=$3", [st, userId, code]);
       await client.query("DELETE FROM invites WHERE draft_code=$1 AND to_user=$2", [code, userId]);

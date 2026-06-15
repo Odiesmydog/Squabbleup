@@ -627,7 +627,7 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
   <div class="sheet">
     <h2 id="profTitle">Welcome! Set up your player</h2>
     <div class="lbl">Username</div>
-    <input class="field" id="profName" maxlength="14" placeholder="Your name" />
+    <input class="field" id="profName" maxlength="14" placeholder="Pick a username (required)" />
     <div class="lbl">Pick your look</div>
     <div class="avGrid" id="avGrid"></div>
     <div class="lbl">…or paste an image link</div>
@@ -723,7 +723,12 @@ $("avGrid").addEventListener("click", (e) => {
   e.target.classList.add("sel"); pickedAv = a;
 });
 $("profSave").addEventListener("click", async () => {
-  const name = $("profName").value.trim() || "Player";
+  const name = $("profName").value.trim();
+  if (!name || name.toLowerCase() === "player" || name.length < 2) {
+    toast("Pick a real username — can't be blank or \"Player\"");
+    $("profName").focus();
+    return;
+  }
   const av = pickedAv || me?.av || "🙂";
   const img = $("profImg").value.trim();
   const u = await api("/api/register", { id: me?.id, name, av, img });
