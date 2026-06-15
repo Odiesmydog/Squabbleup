@@ -606,22 +606,34 @@ app.post("/api/draft/:code/chat", ah(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// admin: force-delete any stuck draft by code (secured by ADMIN_KEY env var)
+app.delete("/api/admin/draft/:code", ah(async (req, res) => {
+  const key = req.headers["x-admin-key"];
+  if (!key || key !== process.env.ADMIN_KEY) return res.status(403).json({ error: "Forbidden" });
+  const code = req.params.code.toUpperCase();
+  await pool.query("DELETE FROM drafts WHERE code=$1", [code]);
+  broadcast(code);
+  res.json({ ok: true, deleted: code });
+}));
+
 // spa fallback for invite links
 app.get("*", (req, res) => res.sendFile(path.join(__dirname, "public", "index.html")));
 
 const PORT = process.env.PORT || 3000;
 const SCORE_POLL_MIN = +(process.env.SCORE_POLL_MIN || 5);
-// Auto-close public lobby rooms that haven't started within 20 minutes
+// Auto-close public lobby rooms that haven't started within 20 minutes.
+// Uses createdAt from state when present, falls back to DB updated column.
 async function cleanupStaleLobbies() {
   try {
-    const expireMs = Date.now() - 20 * 60 * 1000;
     const r = await pool.query(
       `SELECT code FROM drafts
        WHERE (state->>'status') = 'lobby'
        AND (state->>'public') = 'true'
-       AND (state->>'createdAt') IS NOT NULL
-       AND (state->>'createdAt')::bigint < $1`,
-      [expireMs]
+       AND (
+         ((state->>'createdAt') IS NOT NULL AND (state->>'createdAt')::bigint < $1)
+         OR ((state->>'createdAt') IS NULL AND updated < now() - interval '20 minutes')
+       )`,
+      [Date.now() - 20 * 60 * 1000]
     );
     for (const row of r.rows) {
       await pool.query("DELETE FROM drafts WHERE code=$1", [row.code]);
