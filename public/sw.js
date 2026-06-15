@@ -1,5 +1,5 @@
-const CACHE = 'squabbleup-v1';
-const PRECACHE = ['/players-data.js'];
+const CACHE = 'squabbleup-v2';
+const PRECACHE = ['/players-data.js?v=2'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(PRECACHE)).then(() => self.skipWaiting()));
