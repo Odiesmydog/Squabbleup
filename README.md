@@ -1,7 +1,7 @@
 # SquabbleUP — live multiplayer snake drafts with scoring
 
-## Deploy (Railway + Neon)
-1. Push folder to GitHub, create Railway service from the repo.
+## Deploy (Render + Neon)
+1. Push folder to GitHub, create a Render Web Service from the repo.
 2. Env vars:
    - DATABASE_URL  = Neon connection string (tables auto-create)
    - SCORING_DAYS  = 7      (scoring window after a draft finishes)
