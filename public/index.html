@@ -531,6 +531,7 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
   <section class="screen" id="scrRoom">
     <div style="display:flex;gap:8px;margin-bottom:10px">
       <button class="mini" data-nav="home">‹ Drafts</button>
+      <button class="mini" id="roomCloseBtn" style="display:none;background:var(--raised);color:var(--red);margin-left:auto">Cancel room ✕</button>
     </div>
     <div class="rail">
       <div class="railRow" id="railRow"></div>
@@ -1111,9 +1112,15 @@ function connect(code) {
       if (m.type === "state") {
         const prevSeats = draft?.seats?.length || 0;
         draft = m.state;
-        // alert host only when room hits capacity
+        // auto-start when room hits capacity (host client triggers it)
         if (draft.hostId === me.id && draft.status === "lobby" && draft.seats.length >= 8 && prevSeats < 8) {
-          toast("🔥 Room is full — start the draft!");
+          const hsOk = !draft.handshake || (draft.handshake.agreed || []).length >= draft.seats.filter((s) => !s.bot).length;
+          if (hsOk) {
+            toast("Room is full — auto-starting!");
+            api(`/api/draft/${draft.code}/start`, { hostId: me.id }).catch(() => {});
+          } else {
+            toast("Room is full! Waiting for everyone to shake on it…");
+          }
         }
         routeDraft();
       }
@@ -1159,7 +1166,7 @@ function renderLobby() {
   $("hostTools").style.display = isHost ? "block" : "none";
   if (isHost) $("lobbyShuffle").style.display = draft.public ? "none" : "";
   $("lobbyLeaveBtn").style.display = !isHost ? "block" : "none";
-  $("lobbyCloseBtn").style.display = isHost ? "block" : "none";
+  $("lobbyCloseBtn").style.display = (isHost && !draft.public) ? "block" : "none";
   $("lobbyLeaveTopBtn").style.display = !isHost ? "inline-flex" : "none";
   $("codeEditBtn").style.display = isHost ? "inline-block" : "none";
 
@@ -1283,6 +1290,14 @@ $("lobbyCloseBtn").addEventListener("click", async () => {
     gotoTab("home");
   } catch (e) { toast(e.message || "Couldn't close room"); }
 });
+$("roomCloseBtn").addEventListener("click", async () => {
+  if (!confirm("Cancel this draft? Everyone will be removed.")) return;
+  try {
+    await api(`/api/draft/${draft.code}/close`, { hostId: me.id });
+    leaveDraft();
+    gotoTab("home");
+  } catch (e) { toast(e.message || "Couldn't cancel draft"); }
+});
 
 function _runSlotAnim(names) {
   return new Promise((resolve) => {
@@ -1362,6 +1377,8 @@ function renderRoom() {
     todaysPlayers = null; nextGameDay = null; todayMatchups = {}; todaysRoster = []; draftRoomProj = {}; playerStatus = {};
     fetchTodaysTeams(draft.sport).then(() => renderRoom());
   }
+  // only friends-only host can cancel an active room
+  $("roomCloseBtn").style.display = (!draft.local && !draft.public && draft.hostId === me.id) ? "inline-flex" : "none";
   document.querySelector('[data-tab="chat"]').style.display = draft.local ? "none" : "block";
   const round = roundOf(draft), turnIdx = pickerIndex(draft);
   const reversed = (round - 1) % 2 === 1;

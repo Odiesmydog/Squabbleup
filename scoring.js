@@ -232,20 +232,32 @@ async function _fetchSchedule(sport) {
     }
     return { players: names.size > 0 ? names : null, matchups, roster };
   }
-  // World Cup — pull players from match summaries (national team rosters aren't in ESPN's team API)
+  // World Cup — use team roster endpoint (works pre-game); supplement with match summary when lineup is announced
   if (sport === "WCUP") {
     const day = dstr(new Date()); const names = new Set(); const matchups = {}; const roster = [];
     try {
       const sb = await jget(`https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?dates=${day}`);
       for (const ev of sb.events || []) {
-        if (ev.status?.type?.state === "post") continue;
         const comps = ev.competitions?.[0]?.competitors || [];
         const away = comps.find((c) => c.homeAway === "away"); const home = comps.find((c) => c.homeAway === "home");
         const label = away && home
           ? `${normTeamAbbr(away.team?.abbreviation)} vs ${normTeamAbbr(home.team?.abbreviation)}`
           : comps.map((c) => normTeamAbbr(c.team?.abbreviation)).join(" vs ");
-        for (const comp of comps) { const abbr = normTeamAbbr(comp.team?.abbreviation); if (abbr) matchups[abbr] = label; }
-        // pull roster from match summary (works for both pre-game and live)
+        for (const comp of comps) {
+          const abbr = normTeamAbbr(comp.team?.abbreviation); if (abbr) matchups[abbr] = label;
+          const teamId = comp.team?.id;
+          if (teamId) {
+            try {
+              const r = await jget(`https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/teams/${teamId}/roster`);
+              for (const a of r.athletes || []) {
+                const name = a.displayName; if (!name || names.has(name)) continue;
+                const pos = SOC_POS[a.position?.abbreviation] || a.position?.abbreviation || "MID";
+                names.add(name); roster.push({ n: name, pos, tm: abbr, sp: "WCUP" });
+              }
+            } catch {}
+          }
+        }
+        // bonus: actual lineup from summary when announced (live/post)
         try {
           const summary = await jget(`https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/summary?event=${ev.id}`);
           for (const team of summary.rosters || []) {

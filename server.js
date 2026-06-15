@@ -471,7 +471,7 @@ app.post("/api/draft/:code/leave", ah(async (req, res) => {
   res.json({ ok: true });
 }));
 
-// host closes (deletes) a lobby draft
+// host closes (deletes) a draft — public rooms lobby-only; friends-only rooms any time
 app.post("/api/draft/:code/close", ah(async (req, res) => {
   const code = req.params.code.toUpperCase();
   const { hostId } = req.body;
@@ -479,7 +479,7 @@ app.post("/api/draft/:code/close", ah(async (req, res) => {
   const st = r.rows[0]?.state;
   if (!st) return res.status(404).json({ error: "Draft not found" });
   if (st.hostId !== hostId) return res.status(403).json({ error: "Only the host can close the room" });
-  if (st.status !== "lobby") return res.status(400).json({ error: "Draft already started" });
+  if (st.public && st.status !== "lobby") return res.status(400).json({ error: "Public drafts cannot be cancelled once started" });
   await pool.query("DELETE FROM drafts WHERE code=$1", [code]);
   broadcast(code);
   res.json({ ok: true });
