@@ -314,6 +314,29 @@ app.post("/api/draft/create", ah(async (req, res) => {
   res.json({ code });
 }));
 
+// Save a completed pass-and-play draft to the server so it gets real scoring
+app.post("/api/draft/save-local", ah(async (req, res) => {
+  const { draft: ld } = req.body;
+  const VALID_SPORTS = ["NFL","NBA","MLB","NHL","GOLF","TEN","CBB","CFB","UFC","WCUP","SOC"];
+  if (!ld?.seats?.length || !ld?.picks?.length || !VALID_SPORTS.includes(ld.sport)) {
+    return res.status(400).json({ error: "Invalid draft" });
+  }
+  let code;
+  for (;;) { code = code6(); const c = await pool.query("SELECT 1 FROM drafts WHERE code=$1", [code]); if (!c.rows.length) break; }
+  const st = {
+    code,
+    name: String(ld.name || "Pass & play squabble").slice(0, 24),
+    sport: ld.sport, rounds: ld.rounds || 3,
+    hostId: null, public: false, local: true,
+    seats: ld.seats, picks: ld.picks, chat: [],
+    createdAt: Date.now(),
+  };
+  finishDraft(st);
+  await pool.query("INSERT INTO drafts (code, state, participants) VALUES ($1,$2,$3)", [code, JSON.stringify(st), []]);
+  pool.query("UPDATE stats SET val = val + 1 WHERE key='drafts_created'").catch(() => {});
+  res.json({ code, scoring: st.scoring });
+}));
+
 // Public stats — total squabbles ever created
 app.get("/api/stats", ah(async (req, res) => {
   const r = await pool.query("SELECT val FROM stats WHERE key='drafts_created'");

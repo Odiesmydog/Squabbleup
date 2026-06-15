@@ -73,9 +73,11 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
 
 .choiceGrid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 9px; margin-bottom: 4px; }
 .choiceGrid.two { grid-template-columns: 1fr 1fr; }
-.choice { background: var(--panel); border-radius: var(--r); padding: 13px 6px; text-align: center; box-shadow: 0 4px 0 #232120; font-family: var(--display); font-weight: 600; font-size: 14.5px; border: 3px solid transparent; }
+.choice { background: var(--panel); border-radius: var(--r); padding: 13px 6px; text-align: center; box-shadow: 0 4px 0 #232120; font-family: var(--display); font-weight: 600; font-size: 14.5px; border: 3px solid transparent; position: relative; overflow: hidden; }
 .choice .e { display: block; font-size: 27px; margin-bottom: 4px; }
 .choice.sel { border-color: var(--green); background: var(--raised); }
+.choice.offSzn { opacity: 0.55; }
+.choice.offSzn::after { content: "OFF"; position: absolute; top: 5px; right: 5px; background: var(--dim); color: var(--bg); font-size: 9px; font-weight: 800; letter-spacing: 1px; padding: 2px 5px; border-radius: 3px; }
 .choice:active { transform: translateY(2px); box-shadow: 0 2px 0 #232120; }
 
 .fRow { display: flex; align-items: center; gap: 10px; background: var(--panel); border-radius: var(--r); padding: 9px 12px; margin-bottom: 8px; box-shadow: 0 3px 0 #232120; }
@@ -953,7 +955,7 @@ function renderTabs() {
   const scoringDrafts = drafts.filter((d) => d.status === "done" && !d.archived && d.scoringEnd && now < d.scoringEnd);
   const localInProgress = locals().map((d, i) => ({ d, i })).filter((x) => x.d.picks.length < x.d.seats.length * x.d.rounds);
   $("liveList").innerHTML =
-    (activeDrafts.map((d) => dCardHtml(d, { close: true })).join("") +
+    (activeDrafts.map((d) => dCardHtml(d, {})).join("") +
      scoringDrafts.map((d) => dCardHtml(d, { close: true })).join("") +
      localInProgress.map((x) => localCardHtml(x.d, x.i)).join("")) ||
     `<div class="emptyBox"><div class="e">🔴</div>Nothing live right now.<br />Active drafts and scoring matchups appear here.</div>`;
@@ -1180,7 +1182,7 @@ function leaveDraft() {
 }
 
 function routeDraft() {
-  if (!draft || !_connected) return;
+  if (!draft || (!_connected && !draft.local)) return;
   $("bnav").style.display = "none";
   if (draft.status === "lobby") renderLobby();
   else if (draft.status === "active") renderRoom();
@@ -1894,7 +1896,23 @@ function localPick(name) {
   const idx = lpIdx(draft);
   draft.picks.push({ seat: idx, player: p.n, pos: p.pos, sp: p.sp, tm: p.tm });
   draft.seats[idx].roster.push({ n: p.n, pos: p.pos, sp: p.sp, tm: p.tm });
-  if (draft.picks.length >= draft.seats.length * draft.rounds) draft.status = "done";
+  if (draft.picks.length >= draft.seats.length * draft.rounds) {
+    draft.status = "done";
+    persistLocal(); routeDraft();
+    // save to server so real scores load when games finish
+    api("/api/draft/save-local", { draft }).then(({ code, scoring }) => {
+      // update in-memory draft so fetchScores() can hit the real server endpoints
+      draft.code = code; draft.local = false; draft.scoring = scoring;
+      fetchScores().then(() => renderMatchup("doneStandings")).catch(() => {});
+      if (scoring && Date.now() < scoring.end && !scoresT) {
+        scoresT = setInterval(async () => {
+          if (!$("scrDone").classList.contains("on")) { clearInterval(scoresT); scoresT = null; return; }
+          await fetchScores(); renderMatchup("doneStandings");
+        }, 30000);
+      }
+    }).catch(() => {});
+    return;
+  }
   persistLocal(); routeDraft(); localBotLoop();
 }
 function localBotLoop() {
@@ -1912,6 +1930,24 @@ function localBotLoop() {
     if (pick) localPick(pick.n);
   }, 1100);
 }
+
+// ================= off-season badges =================
+// off_months: calendar months (1-based) when that sport has no games
+const OFF_MONTHS = {
+  NFL:  [3,4,5,6,7,8],
+  CFB:  [2,3,4,5,6,7],
+  NBA:  [6,7,8,9],
+  CBB:  [5,6,7,8,9,10],
+  NHL:  [7,8,9],
+};
+function stampOffSeasonChoices() {
+  const m = new Date().getMonth() + 1;
+  document.querySelectorAll(".choice[data-sp]").forEach((btn) => {
+    const sp = btn.getAttribute("data-sp");
+    btn.classList.toggle("offSzn", !!(OFF_MONTHS[sp] && OFF_MONTHS[sp].includes(m)));
+  });
+}
+stampOffSeasonChoices();
 
 // ================= boot =================
 if ('serviceWorker' in navigator) {
