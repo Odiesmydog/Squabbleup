@@ -472,6 +472,13 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
       <input id="hsStakeIn" maxlength="40" placeholder='e.g. "$10 each" or "winner buys drinks"' style="width:100%;box-sizing:border-box" />
       <p class="note" style="margin-top:5px">Everyone must shake on it before the draft can start.</p>
     </div>
+    <div class="stepLbl">4 · Pick timer <span style="color:var(--dim);font-size:10px;font-weight:600;text-transform:none;letter-spacing:0">(optional — auto-drafts when time runs out)</span></div>
+    <div class="choiceGrid" id="timerGrid">
+      <button class="choice sel" data-tm="0">Off</button>
+      <button class="choice" data-tm="60">1:00</button>
+      <button class="choice" data-tm="120">2:00</button>
+      <button class="choice" data-tm="180">3:00</button>
+    </div>
     <button class="big gold" id="createDraft" style="margin-top:16px">Create draft room</button>
     <p class="note" id="createNote">You'll get a room code + link to send your friends. Up to 8 drafters.</p>
     <p class="note" id="publicNote" style="display:none;color:var(--dim)">⏱ Public rooms auto-start when full (8 players) or auto-close after 20 minutes if not started.</p>
@@ -541,6 +548,7 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
       <div class="railDir"><span class="snake" id="snakeIcon">🐍</span><span id="railLbl"></span></div>
     </div>
     <div class="turnBanner" id="turnBanner"></div>
+    <div id="pickCountdown" style="display:none;text-align:center;font-size:13px;font-weight:700;letter-spacing:.5px;padding:4px 0 2px"></div>
     <div class="tabs">
       <button class="tab on" data-tab="pick">🎯 Pick</button>
       <button class="tab" data-tab="board">📋 Board</button>
@@ -784,9 +792,11 @@ document.addEventListener("click", (e) => {
   if (nav === "home") { leaveDraft(); loadHome(); }
 });
 $("newDraft").addEventListener("click", () => {
-  wizPublic = false;
+  wizPublic = false; wizTimer = 0;
   document.querySelectorAll("#visGrid .choice").forEach((c, i) => c.classList.toggle("sel", i === 0));
+  document.querySelectorAll("#timerGrid .choice").forEach((c, i) => c.classList.toggle("sel", i === 0));
   $("hsSection").style.display = "";
+  $("createNote").style.display = ""; $("publicNote").style.display = "none";
   show("scrNew");
 });
 function loadHome() { gotoTab(curTab in TABSCR ? curTab : "home"); }
@@ -1053,7 +1063,7 @@ async function shareText(text, url) {
 }
 
 // ================= wizard =================
-let wizSport = "NFL", wizRounds = 3, wizPublic = false;
+let wizSport = "NFL", wizRounds = 3, wizPublic = false, wizTimer = 0;
 $("sportGrid").addEventListener("click", (e) => {
   const b = e.target.closest(".choice"); if (!b) return;
   document.querySelectorAll("#sportGrid .choice").forEach((c) => c.classList.remove("sel"));
@@ -1063,6 +1073,11 @@ $("roundGrid").addEventListener("click", (e) => {
   const b = e.target.closest(".choice"); if (!b) return;
   document.querySelectorAll("#roundGrid .choice").forEach((c) => c.classList.remove("sel"));
   b.classList.add("sel"); wizRounds = +b.getAttribute("data-rd");
+});
+$("timerGrid").addEventListener("click", (e) => {
+  const b = e.target.closest(".choice"); if (!b) return;
+  document.querySelectorAll("#timerGrid .choice").forEach((c) => c.classList.remove("sel"));
+  b.classList.add("sel"); wizTimer = +b.getAttribute("data-tm");
 });
 $("visGrid").addEventListener("click", (e) => {
   const b = e.target.closest(".choice"); if (!b) return;
@@ -1083,6 +1098,7 @@ $("createDraft").addEventListener("click", async (e) => {
       name: SPORTNAMES[wizSport] + " squabble",
       handshake: stake ? { stake, agreed: [] } : null,
       public: wizPublic,
+      pickTimer: wizTimer,
     });
     $("hsStakeIn").value = "";
     joinByCode(code);
@@ -1093,7 +1109,7 @@ $("createDraft").addEventListener("click", async (e) => {
 
 // ================= draft connection =================
 let draft = null, ws = null, pollT = null, posFilter = "All", q = "", activeTab = "pick", unreadChat = false, lastChatLen = 0, _shuffling = false;
-let _connected = false, _lobbyExpiry = null, _autoDraft = false, _autoDraftT = null;
+let _connected = false, _lobbyExpiry = null, _autoDraft = false, _autoDraftT = null, _pickTimerT = null, _lastPickCount = -1;
 let todaysPlayers = null, nextGameDay = null, todayMatchups = {}, draftRoomProj = {}, playerStatus = {}, todaysRoster = [];
 // Precomputed rank map — built once from static PLAYERS list
 const RANK_MAP = new Map(PLAYERS.map((p) => [p.n, p.r]));
@@ -1159,6 +1175,7 @@ function leaveDraft() {
   if (pollT) { clearInterval(pollT); pollT = null; }
   if (_lobbyExpiry) { clearInterval(_lobbyExpiry); _lobbyExpiry = null; }
   clearTimeout(_autoDraftT); _autoDraftT = null; _autoDraft = false;
+  clearInterval(_pickTimerT); _pickTimerT = null; _lastPickCount = -1;
   for (const k in vsSelection) delete vsSelection[k];
 }
 
@@ -1435,6 +1452,32 @@ function renderRoom() {
   $("turnBanner").textContent = draft.local
     ? (t.bot ? `${t.name} is thinking…` : `📱 Pass the phone — ${t.name} picks!`)
     : (myTurn ? "Your pick! 🔥" : t.bot ? `${t.name} is thinking…` : `${t.name} is on the clock…`);
+
+  // pick countdown timer
+  const cd = $("pickCountdown");
+  if (draft.pickTimer && draft.pickStartedAt && !draft.local) {
+    cd.style.display = "block";
+    // restart interval only when a new pick is made (pickCount changed)
+    if (draft.picks.length !== _lastPickCount) {
+      _lastPickCount = draft.picks.length;
+      clearInterval(_pickTimerT);
+      _pickTimerT = setInterval(() => {
+        if (!draft?.pickTimer || !draft?.pickStartedAt) { clearInterval(_pickTimerT); cd.style.display = "none"; return; }
+        const rem = Math.max(0, Math.ceil((draft.pickStartedAt + draft.pickTimer * 1000 - Date.now()) / 1000));
+        const m = Math.floor(rem / 60), s = rem % 60;
+        const str = `${m}:${String(s).padStart(2, "0")}`;
+        cd.textContent = myTurn ? `⏱ ${str} — pick or auto-draft kicks in` : `⏱ ${str}`;
+        cd.style.color = rem <= 15 ? "var(--red)" : rem <= 30 ? "var(--gold)" : "var(--dim)";
+        if (rem === 0) {
+          clearInterval(_pickTimerT); _pickTimerT = null;
+          if (myTurn && !_autoDraft) { _autoDraft = true; fireAutoDraft(); _autoDraft = false; }
+        }
+      }, 500);
+    }
+  } else {
+    cd.style.display = "none";
+    clearInterval(_pickTimerT); _pickTimerT = null;
+  }
 
   const note = $("noGamesNote");
   if (nextGameDay) {

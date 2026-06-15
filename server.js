@@ -295,12 +295,15 @@ app.post("/api/draft/create", ah(async (req, res) => {
   if (!u) return res.status(404).json({ error: "register first" });
   let code;
   for (;;) { code = code6(); const c = await pool.query("SELECT 1 FROM drafts WHERE code=$1", [code]); if (!c.rows.length) break; }
+  const { pickTimer: rawTimer } = req.body;
+  const pickTimer = [0, 30, 60, 90, 120, 180, 300].includes(+rawTimer) ? +rawTimer : 0;
   const state = {
     code, name: String(name || "Squabble").slice(0, 24),
     sport: ["NFL","NBA","MLB","NHL","GOLF","TEN","CBB","CFB","UFC","WCUP","SOC"].includes(sport) ? sport : "NFL",
     rounds: [3, 6].includes(+rounds) ? +rounds : 3,
     status: "lobby", hostId,
     public: isPublic === true,
+    pickTimer,
     createdAt: Date.now(),
     seats: [{ userId: hostId, name: u.name, av: u.av, img: u.img, bot: false, roster: [] }],
     picks: [], chat: [],
@@ -466,6 +469,7 @@ app.post("/api/draft/:code/start", ah((req, res) => hostAction(req, res, (st) =>
     st.chat.push({ name: "SquabbleUP", av: "🎲", img: "", text: "Draft order shuffled! " + st.seats.map((x) => x.name).join(" → ") + " — let's squabble UP! 🔥", t: Date.now() });
   }
   st.status = "active";
+  if (st.pickTimer) st.pickStartedAt = Date.now();
 })));
 
 function shuffleSeats(st) {
@@ -617,6 +621,7 @@ app.post("/api/draft/:code/pick", ah(async (req, res) => {
   if (!p) return res.status(400).json({ error: "Unknown player" });
   applyPick(st, p);
   if (isDone(st)) finishDraft(st);
+  else if (st.pickTimer) st.pickStartedAt = Date.now();
   await pool.query("UPDATE drafts SET state=$1, updated=now() WHERE code=$2", [st, code]);
   broadcast(code);
   res.json(st);
