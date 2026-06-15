@@ -283,6 +283,7 @@ app.post("/api/draft/create", ah(async (req, res) => {
     rounds: [3, 6].includes(+rounds) ? +rounds : 3,
     status: "lobby", hostId,
     public: isPublic === true,
+    createdAt: Date.now(),
     seats: [{ userId: hostId, name: u.name, av: u.av, img: u.img, bot: false, roster: [] }],
     picks: [], chat: [],
     handshake: handshake?.stake ? { stake: String(handshake.stake).slice(0, 60), agreed: [] } : null,
@@ -610,6 +611,26 @@ app.get("*", (req, res) => res.sendFile(path.join(__dirname, "public", "index.ht
 
 const PORT = process.env.PORT || 3000;
 const SCORE_POLL_MIN = +(process.env.SCORE_POLL_MIN || 5);
+// Auto-close public lobby rooms that haven't started within 20 minutes
+async function cleanupStaleLobbies() {
+  try {
+    const expireMs = Date.now() - 20 * 60 * 1000;
+    const r = await pool.query(
+      `SELECT code FROM drafts
+       WHERE (state->>'status') = 'lobby'
+       AND (state->>'public') = 'true'
+       AND (state->>'createdAt') IS NOT NULL
+       AND (state->>'createdAt')::bigint < $1`,
+      [expireMs]
+    );
+    for (const row of r.rows) {
+      await pool.query("DELETE FROM drafts WHERE code=$1", [row.code]);
+      broadcast(row.code);
+      console.log("Auto-closed expired public lobby:", row.code);
+    }
+  } catch (e) { console.error("lobby cleanup", e.message); }
+}
+
 initDb().then(() => {
   server.listen(PORT, () => console.log("SquabbleUP live on :" + PORT));
   if (process.env.DEMO_STATS === "on") scoring.seedDemo(pool).catch((e) => console.error("demo seed", e.message));
@@ -617,4 +638,6 @@ initDb().then(() => {
     scoring.pollAll(pool).catch((e) => console.error("score poll", e.message));
     setInterval(() => scoring.pollAll(pool).catch((e) => console.error("score poll", e.message)), SCORE_POLL_MIN * 60 * 1000);
   }
+  cleanupStaleLobbies();
+  setInterval(cleanupStaleLobbies, 60 * 1000);
 });

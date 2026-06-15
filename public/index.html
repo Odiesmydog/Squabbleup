@@ -520,6 +520,7 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
     <button class="big flat" id="lobbyLeaveBtn" style="display:none;margin-top:10px;color:var(--red)">Leave draft</button>
     <button class="big flat" id="lobbyCloseBtn" style="display:none;margin-top:10px;color:var(--red)">Cancel &amp; close room</button>
     <p class="note" id="lobbyNote">Waiting for the host to start…</p>
+    <p class="note" id="lobbyExpiry" style="display:none;color:var(--dim)"></p>
     <div class="stepLbl">Lobby chat</div>
     <div class="chatBox" style="height:34vh">
       <div class="chatMsgs" id="lobbyChat"></div>
@@ -1072,7 +1073,7 @@ $("createDraft").addEventListener("click", async (e) => {
 
 // ================= draft connection =================
 let draft = null, ws = null, pollT = null, posFilter = "All", q = "", activeTab = "pick", unreadChat = false, lastChatLen = 0, _shuffling = false;
-let _connected = false;
+let _connected = false, _lobbyExpiry = null;
 let todaysPlayers = null, nextGameDay = null, todayMatchups = {}, draftRoomProj = {}, playerStatus = {}, todaysRoster = [];
 // Precomputed rank map — built once from static PLAYERS list
 const RANK_MAP = new Map(PLAYERS.map((p) => [p.n, p.r]));
@@ -1136,6 +1137,7 @@ function leaveDraft() {
   _connected = false;
   if (ws) { try { ws.close(); } catch {} ws = null; }
   if (pollT) { clearInterval(pollT); pollT = null; }
+  if (_lobbyExpiry) { clearInterval(_lobbyExpiry); _lobbyExpiry = null; }
   for (const k in vsSelection) delete vsSelection[k];
 }
 
@@ -1166,8 +1168,26 @@ function renderLobby() {
   $("hostTools").style.display = isHost ? "block" : "none";
   if (isHost) $("lobbyShuffle").style.display = draft.public ? "none" : "";
   $("lobbyLeaveBtn").style.display = !isHost ? "block" : "none";
-  $("lobbyCloseBtn").style.display = (isHost && !draft.public) ? "block" : "none";
+  $("lobbyCloseBtn").style.display = isHost ? "block" : "none";
   $("lobbyLeaveTopBtn").style.display = !isHost ? "inline-flex" : "none";
+
+  // countdown timer for public rooms (auto-close after 20 min)
+  if (draft.public && draft.createdAt) {
+    function _updateExpiry() {
+      const rem = draft.createdAt + 20 * 60 * 1000 - Date.now();
+      const el = $("lobbyExpiry");
+      if (!el) return;
+      if (rem <= 0) { el.textContent = "⏱ Room closing…"; return; }
+      const m = Math.floor(rem / 60000), s = Math.floor((rem % 60000) / 1000);
+      el.textContent = `⏱ Room auto-closes in ${m}:${String(s).padStart(2, "0")} if not started`;
+    }
+    $("lobbyExpiry").style.display = "block";
+    _updateExpiry();
+    if (!_lobbyExpiry) _lobbyExpiry = setInterval(_updateExpiry, 1000);
+  } else {
+    $("lobbyExpiry").style.display = "none";
+    if (_lobbyExpiry) { clearInterval(_lobbyExpiry); _lobbyExpiry = null; }
+  }
   $("codeEditBtn").style.display = isHost ? "inline-block" : "none";
 
   // handshake mode
