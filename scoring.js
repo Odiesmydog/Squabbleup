@@ -265,38 +265,39 @@ async function _fetchSchedule(sport) {
   // General soccer — check multiple leagues for today's games
   if (sport === "SOC") {
     const day = dstr(new Date()); const names = new Set(); const matchups = {}; const roster = [];
-    // Helper: parse ESPN's team roster response — athletes can be grouped by position
-    // (athletes[].items[]) or flat (athletes[]). Handle both.
-    function parseSocRoster(athletes, abbr) {
-      for (const group of athletes || []) {
-        const items = Array.isArray(group.items) && group.items.length ? group.items : [group];
-        for (const a of items) {
+    // Fetch a team's squad via the team roster endpoint.
+    // ESPN returns a flat athletes[] array (each element is a player).
+    async function fetchTeamRoster(lg, teamId, abbr) {
+      try {
+        const r = await jget(`https://site.api.espn.com/apis/site/v2/sports/soccer/${lg}/teams/${teamId}/roster`);
+        for (const a of r.athletes || []) {
           const name = a.displayName;
-          if (!name || name.length < 3 || names.has(name)) continue;
+          if (!name || names.has(name)) continue;
           const pos = SOC_POS[a.position?.abbreviation] || a.position?.abbreviation || "MID";
           names.add(name); roster.push({ n: name, pos, tm: abbr, sp: "SOC" });
         }
-      }
+      } catch {}
     }
-    // Helper: pull rosters from a match summary (works for live/post games and announced lineups)
-    async function pullSummaryRosters(lg, evId) {
-      const summary = await jget(`https://site.api.espn.com/apis/site/v2/sports/soccer/${lg}/summary?event=${evId}`);
-      let got = 0;
-      for (const team of summary.rosters || []) {
-        const abbr = normTeamAbbr(team.team?.abbreviation || "");
-        for (const ath of team.roster || []) {
-          const name = ath.athlete?.displayName;
-          if (!name || names.has(name)) continue;
-          const rawPos = ath.athlete?.position?.abbreviation || ath.position?.abbreviation || "";
-          const pos = SOC_POS[rawPos] || rawPos || "MID";
-          names.add(name); roster.push({ n: name, pos, tm: abbr, sp: "SOC" }); got++;
+    // Also pull from match summary when lineups are announced (live/post games)
+    async function fetchSummaryRosters(lg, evId) {
+      try {
+        const summary = await jget(`https://site.api.espn.com/apis/site/v2/sports/soccer/${lg}/summary?event=${evId}`);
+        for (const team of summary.rosters || []) {
+          const abbr = normTeamAbbr(team.team?.abbreviation || "");
+          for (const ath of team.roster || []) {
+            const name = ath.athlete?.displayName;
+            if (!name || names.has(name)) continue;
+            const rawPos = ath.athlete?.position?.abbreviation || ath.position?.abbreviation || "";
+            const pos = SOC_POS[rawPos] || rawPos || "MID";
+            names.add(name); roster.push({ n: name, pos, tm: abbr, sp: "SOC" });
+          }
         }
-      }
-      return got;
+      } catch {}
     }
 
-    // Club leagues: use team roster API (full squad, always available) + summary as bonus
-    for (const lg of SOC_LEAGUES) {
+    // All leagues including World Cup
+    const allLeagues = [...SOC_LEAGUES, "fifa.world"];
+    for (const lg of allLeagues) {
       try {
         const sb = await jget(`https://site.api.espn.com/apis/site/v2/sports/soccer/${lg}/scoreboard?dates=${day}`);
         for (const ev of sb.events || []) {
@@ -308,37 +309,15 @@ async function _fetchSchedule(sport) {
           for (const comp of comps) {
             const abbr = normTeamAbbr(comp.team?.abbreviation);
             if (abbr) matchups[abbr] = label;
-            // Team roster API — always available for club teams, even pre-game
+            // Team roster API works for both club and national teams — always available pre-game
             const teamId = comp.team?.id;
-            if (teamId) {
-              try {
-                const r = await jget(`https://site.api.espn.com/apis/site/v2/sports/soccer/${lg}/teams/${teamId}/roster`);
-                parseSocRoster(r.athletes, abbr);
-              } catch {}
-            }
+            if (teamId) await fetchTeamRoster(lg, teamId, abbr);
           }
-          // Also pull from match summary when available (more accurate lineup)
-          try { await pullSummaryRosters(lg, ev.id); } catch {}
+          // Summary rosters bonus: more accurate lineup when announced (live/post games)
+          await fetchSummaryRosters(lg, ev.id);
         }
       } catch {}
     }
-
-    // World Cup — only summary.rosters works (national team roster API returns nothing useful)
-    try {
-      const sb = await jget(`https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?dates=${day}`);
-      for (const ev of sb.events || []) {
-        const comps = ev.competitions?.[0]?.competitors || [];
-        const away = comps.find((c) => c.homeAway === "away"); const home = comps.find((c) => c.homeAway === "home");
-        const label = away && home
-          ? `${normTeamAbbr(away.team?.abbreviation)} @ ${normTeamAbbr(home.team?.abbreviation)}`
-          : comps.map((c) => normTeamAbbr(c.team?.abbreviation)).join(" vs ");
-        for (const comp of comps) {
-          const abbr = normTeamAbbr(comp.team?.abbreviation);
-          if (abbr) matchups[abbr] = label;
-        }
-        try { await pullSummaryRosters("fifa.world", ev.id); } catch {}
-      }
-    } catch {}
     return { players: names.size > 0 ? names : null, matchups, roster };
   }
   const pair = LEAGUES[sport];
