@@ -743,6 +743,7 @@ const TABSCR = { home: "scrHome", drafts: "scrDrafts", live: "scrLive", results:
 async function gotoTab(t) {
   curTab = t;
   leaveDraft();
+  draft = null;
   closePeek();
   document.querySelectorAll(".bnav button").forEach((b) => b.classList.toggle("on", b.getAttribute("data-bt") === t));
   $("bnav").style.display = "flex";
@@ -1131,14 +1132,13 @@ function connect(code) {
 }
 function leaveDraft() {
   _connected = false;
-  draft = null;
   if (ws) { try { ws.close(); } catch {} ws = null; }
   if (pollT) { clearInterval(pollT); pollT = null; }
   for (const k in vsSelection) delete vsSelection[k];
 }
 
 function routeDraft() {
-  if (!draft) return;
+  if (!draft || !_connected) return;
   $("bnav").style.display = "none";
   if (draft.status === "lobby") renderLobby();
   else if (draft.status === "active") renderRoom();
