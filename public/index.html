@@ -548,7 +548,10 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
       <button class="tab" data-tab="matchup">⚔️</button>
     </div>
     <div id="tabPick">
-      <input class="search" id="pSearch" placeholder="Search players" />
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:2px">
+        <input class="search" id="pSearch" placeholder="Search players" style="flex:1;margin-bottom:0" />
+        <button class="mini" id="autoDraftBtn" style="white-space:nowrap;flex-shrink:0">⚡ Auto</button>
+      </div>
       <div id="noGamesNote" style="display:none"></div>
       <div class="filters" id="posFilters"></div>
       <div id="pool"></div>
@@ -1090,7 +1093,7 @@ $("createDraft").addEventListener("click", async (e) => {
 
 // ================= draft connection =================
 let draft = null, ws = null, pollT = null, posFilter = "All", q = "", activeTab = "pick", unreadChat = false, lastChatLen = 0, _shuffling = false;
-let _connected = false, _lobbyExpiry = null;
+let _connected = false, _lobbyExpiry = null, _autoDraft = false, _autoDraftT = null;
 let todaysPlayers = null, nextGameDay = null, todayMatchups = {}, draftRoomProj = {}, playerStatus = {}, todaysRoster = [];
 // Precomputed rank map — built once from static PLAYERS list
 const RANK_MAP = new Map(PLAYERS.map((p) => [p.n, p.r]));
@@ -1155,6 +1158,7 @@ function leaveDraft() {
   if (ws) { try { ws.close(); } catch {} ws = null; }
   if (pollT) { clearInterval(pollT); pollT = null; }
   if (_lobbyExpiry) { clearInterval(_lobbyExpiry); _lobbyExpiry = null; }
+  clearTimeout(_autoDraftT); _autoDraftT = null; _autoDraft = false;
   for (const k in vsSelection) delete vsSelection[k];
 }
 
@@ -1461,10 +1465,45 @@ function renderRoom() {
     </div>`;
   }).join("");
   if (activeTab === "board") renderBoard("tabBoard");
+  // update auto button state and trigger if it's our turn
+  const autBtn = $("autoDraftBtn");
+  if (autBtn) {
+    autBtn.style.display = (!draft.local && draft.status === "active") ? "inline-flex" : "none";
+    autBtn.textContent = _autoDraft ? "⚡ Auto ON" : "⚡ Auto";
+    autBtn.style.background = _autoDraft ? "var(--green)" : "";
+    autBtn.style.color = _autoDraft ? "#111" : "";
+  }
+  if (myTurn && _autoDraft) fireAutoDraft();
 }
 $("posFilters").addEventListener("click", (e) => { const p = e.target.getAttribute("data-pos"); if (p) { posFilter = p; renderRoom(); } });
 let _searchT;
 $("pSearch").addEventListener("input", (e) => { clearTimeout(_searchT); _searchT = setTimeout(() => { q = e.target.value.toLowerCase(); renderRoom(); }, 150); });
+$("autoDraftBtn").addEventListener("click", () => {
+  _autoDraft = !_autoDraft;
+  $("autoDraftBtn").textContent = _autoDraft ? "⚡ Auto ON" : "⚡ Auto";
+  $("autoDraftBtn").style.background = _autoDraft ? "var(--green)" : "";
+  $("autoDraftBtn").style.color = _autoDraft ? "#111" : "";
+  if (_autoDraft) fireAutoDraft();
+});
+function fireAutoDraft() {
+  clearTimeout(_autoDraftT);
+  if (!_autoDraft || !draft || draft.local || draft.status !== "active") return;
+  const turnIdx = pickerIndex(draft);
+  if (draft.seats[turnIdx]?.userId !== me.id) return;
+  _autoDraftT = setTimeout(async () => {
+    if (!_autoDraft || !draft) return;
+    // sort available pool by projection desc, then by rank
+    const pool = availPlayers().filter((p) => !OUT_STATUS.has(playerStatus[p.n]?.status) && !p.livelock)
+      .sort((a, b) => (draftRoomProj[b.n]?.proj || 0) - (draftRoomProj[a.n]?.proj || 0) || (RANK_MAP.get(a.n) || 999) - (RANK_MAP.get(b.n) || 999));
+    const pick = pool[0];
+    if (!pick) return;
+    const pInfo = (todaysRoster.find((x) => x.n === pick.n) || PLAYERS.find((x) => x.n === pick.n) || pick);
+    try {
+      draft = await api(`/api/draft/${draft.code}/pick`, { userId: me.id, player: pick.n, pos: pInfo.pos, sp: pInfo.sp, tm: pInfo.tm });
+      routeDraft();
+    } catch (e) { toast(e.message || "Auto-pick failed"); }
+  }, 1200);
+}
 $("pool").addEventListener("click", async (e) => {
   const name = e.target.getAttribute("data-pick");
   if (name) {

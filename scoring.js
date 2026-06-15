@@ -341,6 +341,17 @@ async function _fetchSchedule(sport) {
     const names = new Set(); const matchups = {}; const roster = [];
     // known positions from static list take priority over ESPN's generic G/F/C
     const knownPos = new Map(PLAYERS.map((p) => [p.n, p.pos]));
+    // MLB: collect today's probable starters so we don't show pitchers who aren't pitching
+    const probablePitchers = new Set();
+    if (sport === "MLB") {
+      for (const ev of sb.events || []) {
+        for (const comp of ev.competitions?.[0]?.competitors || []) {
+          const pp = comp.probablePitcher?.displayName;
+          if (pp) probablePitchers.add(pp);
+        }
+      }
+    }
+    const MLB_PITCHER_POS = new Set(["SP", "RP", "P", "LHP", "RHP"]);
     for (const ev of sb.events || []) {
       // exclude only fully finished games — "pre" (not started) and "in" (in progress) are both draftable
       if (ev.status?.type?.state === "post") continue;
@@ -367,6 +378,8 @@ async function _fetchSchedule(sport) {
               if (a.displayName) {
                 const rawPos = knownPos.get(a.displayName) || a.position?.abbreviation || "?";
                 const pos = FAMILY[sport] === "soccer" ? (SOC_POS[rawPos] || rawPos) : rawPos;
+                // MLB: skip pitchers not starting today (only include if we have probable data)
+                if (sport === "MLB" && probablePitchers.size > 0 && MLB_PITCHER_POS.has(rawPos) && !probablePitchers.has(a.displayName)) continue;
                 names.add(a.displayName);
                 roster.push({ n: a.displayName, pos, tm: abbr, sp: sport });
                 added = true;
