@@ -1111,14 +1111,9 @@ function connect(code) {
       if (m.type === "state") {
         const prevSeats = draft?.seats?.length || 0;
         draft = m.state;
-        // alert host when the lobby changes
-        if (draft.hostId === me.id && draft.status === "lobby" && draft.seats.length > prevSeats) {
-          const newcomer = draft.seats[draft.seats.length - 1];
-          if (draft.seats.length >= 8) {
-            toast("🔥 Room is full — start the draft!");
-          } else if (draft.public) {
-            toast(`${newcomer?.name || "Someone"} joined · ${draft.seats.length}/8`);
-          }
+        // alert host only when room hits capacity
+        if (draft.hostId === me.id && draft.status === "lobby" && draft.seats.length >= 8 && prevSeats < 8) {
+          toast("🔥 Room is full — start the draft!");
         }
         routeDraft();
       }
