@@ -185,7 +185,7 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
 .hsAgreeBtn:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--gold-d); }
 .hsAgreeBtn[disabled] { opacity: .55; pointer-events: none; }
 /* bottom nav */
-.bnav { position: fixed; left: 50%; transform: translateX(-50%); bottom: 0; width: min(540px, 100%); background: var(--panel); border-top: 2px solid var(--raised); display: flex; z-index: 20; padding-bottom: env(safe-area-inset-bottom); }
+.bnav { position: fixed; left: 50%; transform: translate3d(-50%, 0, 0); bottom: 0; width: min(540px, 100%); background: var(--panel); border-top: 2px solid var(--raised); display: flex; z-index: 20; padding-bottom: env(safe-area-inset-bottom); will-change: transform; -webkit-backface-visibility: hidden; backface-visibility: hidden; }
 .bnav button { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 9px 0 7px; color: var(--dim); font-family: var(--display); font-size: 10.5px; font-weight: 600; position: relative; }
 .bnav button .i { font-size: 20px; }
 .bnav button.on { color: var(--green); }
@@ -1827,7 +1827,16 @@ function localBotLoop() {
 }
 
 // ================= boot =================
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').catch(() => {});
+  // Handle join codes routed from the SW when another tab/window opened a share link
+  navigator.serviceWorker.addEventListener('message', (e) => {
+    if (e.data?.type === 'OPEN_DRAFT' && e.data.code) {
+      history.replaceState(null, '', '/');
+      joinByCode(e.data.code);
+    }
+  });
+}
 renderTop();
 if (!me) openProfile(true);
 else if (pendingJoin) { const c = pendingJoin; pendingJoin = null; joinByCode(c); }
@@ -1987,18 +1996,14 @@ setupPush().catch(() => {});
   }
 })();
 
-// Hide bottom nav when iOS keyboard opens (keyboard shrinks visualViewport but not innerHeight).
-// Key insight: when the user resizes a browser window, both innerHeight and visualViewport.height
-// change together. When the iOS keyboard opens, only visualViewport.height shrinks.
-// So "keyboard open" = visualViewport dropped a lot AND innerHeight didn't drop proportionally.
+// Hide bottom nav when iOS keyboard opens. Keyboard shrinks visualViewport by 250px+.
+// Small changes (< 200px) are browser chrome show/hide during scroll — ignore those.
 const _initVPH = window.visualViewport?.height || window.innerHeight;
-const _initIH = window.innerHeight;
 if (window.visualViewport) {
   window.visualViewport.addEventListener("resize", () => {
     if (draft) return;
     const vpDrop = _initVPH - window.visualViewport.height;
-    const ihDrop = _initIH - window.innerHeight;
-    const keyboardOpen = vpDrop > 150 && ihDrop < vpDrop * 0.5;
+    const keyboardOpen = vpDrop > 200;
     $("bnav").style.display = keyboardOpen ? "none" : "flex";
   });
 }

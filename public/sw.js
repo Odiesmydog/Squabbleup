@@ -1,4 +1,4 @@
-const CACHE = 'squabbleup-v2';
+const CACHE = 'squabbleup-v3';
 const PRECACHE = ['/players-data.js?v=2'];
 
 self.addEventListener('install', e => {
@@ -15,10 +15,27 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
   if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/ws') || url.origin !== self.location.origin) return;
+
   if (e.request.mode === 'navigate') {
+    const joinCode = url.searchParams.get('join');
+    if (joinCode) {
+      // If there's already an open PWA window, send the join code to it and
+      // redirect this new tab/window to root so we don't create a second instance.
+      e.respondWith((async () => {
+        const existing = await self.clients.matchAll({ type: 'window', includeUncontrolled: false });
+        if (existing.length > 0) {
+          existing[0].postMessage({ type: 'OPEN_DRAFT', code: joinCode });
+          try { await existing[0].focus(); } catch {}
+          return Response.redirect('/', 302);
+        }
+        return fetch(e.request).catch(() => caches.match('/'));
+      })());
+      return;
+    }
     e.respondWith(fetch(e.request).catch(() => caches.match('/')));
     return;
   }
+
   e.respondWith(caches.match(e.request).then(cached => cached || fetch(e.request).then(res => {
     if (res.ok) caches.open(CACHE).then(c => c.put(e.request, res.clone()));
     return res;
