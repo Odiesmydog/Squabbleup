@@ -187,7 +187,7 @@ function applyPick(st, p) {
   st.picks.push({ seat: idx, player: p.n, pos: p.pos, sp: p.sp, tm: p.tm });
   st.seats[idx].roster.push({ n: p.n, pos: p.pos, sp: p.sp, tm: p.tm });
 }
-const SCORING_DAYS = { NFL: 7, CFB: 7, NBA: 1, CBB: 1, MLB: 1, NHL: 1, GOLF: 4, TEN: 1, UFC: 1, WCUP: 1, SOC: 1 };
+const SCORING_DAYS = { NFL: 7, CFB: 7, NBA: 1, CBB: 1, MLB: 1, NHL: 1, GOLF: 4, TEN: 1, UFC: 2, WCUP: 2, SOC: 2 };
 function finishDraft(st) {
   st.status = "done";
   const days = SCORING_DAYS[st.sport] || 1;
@@ -307,6 +307,21 @@ app.get("/api/lobby", ah(async (req, res) => {
   res.json({ rooms });
 }));
 
+// Peek at a public lobby room without joining — returns seats + recent chat
+app.get("/api/draft/:code/peek", ah(async (req, res) => {
+  const code = req.params.code.toUpperCase();
+  const r = await pool.query("SELECT state FROM drafts WHERE code=$1", [code]);
+  const st = r.rows[0]?.state;
+  if (!st) return res.status(404).json({ error: "Draft not found" });
+  if (!st.public) return res.status(403).json({ error: "Private draft" });
+  if (st.status !== "lobby") return res.status(400).json({ error: "Draft already started" });
+  res.json({
+    code, name: st.name, sport: st.sport, rounds: st.rounds,
+    seats: st.seats.map((s) => ({ name: s.name, av: s.av, img: s.img, isHost: s.userId === st.hostId })),
+    chat: (st.chat || []).slice(-30),
+  });
+}));
+
 app.post("/api/draft/:code/handshake", ah(async (req, res) => {
   const code = req.params.code.toUpperCase();
   const { userId } = req.body;
@@ -353,17 +368,25 @@ app.post("/api/draft/:code/join", ah(async (req, res) => {
   const { userId } = req.body;
   const u = (await pool.query("SELECT * FROM users WHERE id=$1", [userId])).rows[0];
   if (!u) return res.status(404).json({ error: "register first" });
-  const r = await pool.query("SELECT state FROM drafts WHERE code=$1", [code]);
-  const st = r.rows[0]?.state;
-  if (!st) return res.status(404).json({ error: "Draft not found" });
-  if (!st.seats.some((s) => s.userId === userId)) {
-    if (st.status !== "lobby") return res.status(400).json({ error: "Draft already started" });
-    if (st.seats.length >= 8) return res.status(400).json({ error: "Draft is full (8 max)" });
-    st.seats.push({ userId, name: u.name, av: u.av, img: u.img, bot: false, roster: [] });
-    await pool.query("UPDATE drafts SET state=$1, participants=array_append(participants,$2), updated=now() WHERE code=$3", [st, userId, code]);
-    await pool.query("DELETE FROM invites WHERE draft_code=$1 AND to_user=$2", [code, userId]);
-    broadcast(code);
-  }
+  // FOR UPDATE locks the row so concurrent join requests can't both sneak in a duplicate seat
+  const client = await pool.connect();
+  let st;
+  try {
+    await client.query("BEGIN");
+    const r = await client.query("SELECT state FROM drafts WHERE code=$1 FOR UPDATE", [code]);
+    st = r.rows[0]?.state;
+    if (!st) { await client.query("ROLLBACK"); return res.status(404).json({ error: "Draft not found" }); }
+    if (!st.seats.some((s) => s.userId === userId)) {
+      if (st.status !== "lobby") { await client.query("ROLLBACK"); return res.status(400).json({ error: "Draft already started" }); }
+      if (st.seats.length >= 8) { await client.query("ROLLBACK"); return res.status(400).json({ error: "Draft is full (8 max)" }); }
+      st.seats.push({ userId, name: u.name, av: u.av, img: u.img, bot: false, roster: [] });
+      await client.query("UPDATE drafts SET state=$1, participants=array_append(participants,$2), updated=now() WHERE code=$3", [st, userId, code]);
+      await client.query("DELETE FROM invites WHERE draft_code=$1 AND to_user=$2", [code, userId]);
+    }
+    await client.query("COMMIT");
+  } catch (e) { await client.query("ROLLBACK"); throw e; }
+  finally { client.release(); }
+  broadcast(code);
   res.json(st);
 }));
 
@@ -445,6 +468,20 @@ app.post("/api/draft/:code/leave", ah(async (req, res) => {
     await pool.query("UPDATE drafts SET state=$1, participants=$2, updated=now() WHERE code=$3", [st, st.participants, code]);
     broadcast(code);
   }
+  res.json({ ok: true });
+}));
+
+// host closes (deletes) a lobby draft
+app.post("/api/draft/:code/close", ah(async (req, res) => {
+  const code = req.params.code.toUpperCase();
+  const { hostId } = req.body;
+  const r = await pool.query("SELECT state FROM drafts WHERE code=$1", [code]);
+  const st = r.rows[0]?.state;
+  if (!st) return res.status(404).json({ error: "Draft not found" });
+  if (st.hostId !== hostId) return res.status(403).json({ error: "Only the host can close the room" });
+  if (st.status !== "lobby") return res.status(400).json({ error: "Draft already started" });
+  await pool.query("DELETE FROM drafts WHERE code=$1", [code]);
+  broadcast(code);
   res.json({ ok: true });
 }));
 

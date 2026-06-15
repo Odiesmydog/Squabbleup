@@ -171,11 +171,10 @@ async function _fetchSchedule(sport) {
       // prefer "in" (live) over "pre" for the tournament name
       const ev0 = active.find((e) => e.status?.type?.state === "in") || active[0];
       const tournName = ev0?.shortName || ev0?.name || "PGA Tour";
-      const isLive = ev0?.status?.type?.state === "in";
       const names = new Set(); const matchups = {}; const roster = [];
       for (const p of PLAYERS.filter((x) => x.sp === "GOLF")) {
         names.add(p.n); matchups[p.tm] = tournName;
-        roster.push(isLive ? { ...p, livelock: true } : p);
+        roster.push(p);
       }
       return { players: names.size > 0 ? names : null, matchups, roster };
     } catch { return { players: null, matchups: {}, roster: [] }; }
@@ -225,18 +224,48 @@ async function _fetchSchedule(sport) {
         const ev0 = active.find((e) => e.status?.type?.state === "in") || active[0];
         const tournName = ev0?.shortName || ev0?.name || `${tour.toUpperCase()} Tennis`;
         const pos = tour === "atp" ? "ATP" : "WTA";
-        const isLive = ev0?.status?.type?.state === "in";
         for (const p of PLAYERS.filter((x) => x.sp === "TEN" && x.pos === pos)) {
           names.add(p.n); matchups[p.tm] = tournName;
-          roster.push(isLive ? { ...p, livelock: true } : p);
+          roster.push(p);
         }
       } catch {}
     }
     return { players: names.size > 0 ? names : null, matchups, roster };
   }
+  // World Cup — pull players from match summaries (national team rosters aren't in ESPN's team API)
+  if (sport === "WCUP") {
+    const day = dstr(new Date()); const names = new Set(); const matchups = {}; const roster = [];
+    try {
+      const sb = await jget(`https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?dates=${day}`);
+      for (const ev of sb.events || []) {
+        if (ev.status?.type?.state === "post") continue;
+        const comps = ev.competitions?.[0]?.competitors || [];
+        const away = comps.find((c) => c.homeAway === "away"); const home = comps.find((c) => c.homeAway === "home");
+        const label = away && home
+          ? `${normTeamAbbr(away.team?.abbreviation)} vs ${normTeamAbbr(home.team?.abbreviation)}`
+          : comps.map((c) => normTeamAbbr(c.team?.abbreviation)).join(" vs ");
+        for (const comp of comps) { const abbr = normTeamAbbr(comp.team?.abbreviation); if (abbr) matchups[abbr] = label; }
+        // pull roster from match summary (works for both pre-game and live)
+        try {
+          const summary = await jget(`https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/summary?event=${ev.id}`);
+          for (const team of summary.rosters || []) {
+            const abbr = normTeamAbbr(team.team?.abbreviation || "");
+            for (const ath of team.roster || []) {
+              const name = ath.athlete?.displayName; if (!name || names.has(name)) continue;
+              const rawPos = ath.athlete?.position?.abbreviation || ath.position?.abbreviation || "";
+              const pos = SOC_POS[rawPos] || rawPos || "MID";
+              names.add(name); roster.push({ n: name, pos, tm: abbr, sp: "WCUP" });
+            }
+          }
+        } catch {}
+      }
+    } catch {}
+    return { players: names.size > 0 ? names : null, matchups, roster };
+  }
   // General soccer — check multiple leagues for today's games
   if (sport === "SOC") {
     const day = dstr(new Date()); const names = new Set(); const matchups = {}; const roster = [];
+    // Pull from regular club leagues
     for (const lg of SOC_LEAGUES) {
       try {
         const sb = await jget(`https://site.api.espn.com/apis/site/v2/sports/soccer/${lg}/scoreboard?dates=${day}`);
@@ -249,24 +278,53 @@ async function _fetchSchedule(sport) {
             : comps.map((c) => normTeamAbbr(c.team?.abbreviation)).join(" vs ");
           for (const comp of comps) {
             const abbr = normTeamAbbr(comp.team?.abbreviation);
-            const teamId = comp.team?.id;
-            if (!abbr) continue;
-            matchups[abbr] = label;
-            if (teamId) {
-              try {
-                const r = await jget(`https://site.api.espn.com/apis/site/v2/sports/soccer/${lg}/teams/${teamId}/roster`);
-                for (const a of (r.athletes || []).filter((x) => x.displayName)) {
-                  if (!names.has(a.displayName)) {
-                    const pos = SOC_POS[a.position?.abbreviation] || a.position?.abbreviation || "?";
-                    names.add(a.displayName); roster.push({ n: a.displayName, pos, tm: abbr, sp: "SOC" });
-                  }
-                }
-              } catch {}
-            }
+            if (abbr) matchups[abbr] = label;
           }
+          try {
+            const summary = await jget(`https://site.api.espn.com/apis/site/v2/sports/soccer/${lg}/summary?event=${ev.id}`);
+            for (const team of summary.rosters || []) {
+              const abbr = normTeamAbbr(team.team?.abbreviation || "");
+              for (const ath of team.roster || []) {
+                const name = ath.athlete?.displayName;
+                if (!name || names.has(name)) continue;
+                const rawPos = ath.athlete?.position?.abbreviation || ath.position?.abbreviation || "";
+                const pos = SOC_POS[rawPos] || rawPos || "MID";
+                names.add(name); roster.push({ n: name, pos, tm: abbr, sp: "SOC" });
+              }
+            }
+          } catch {}
         }
       } catch {}
     }
+    // Also pull World Cup games — the biggest soccer event and always in season during WC years
+    try {
+      const sb = await jget(`https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?dates=${day}`);
+      for (const ev of sb.events || []) {
+        if (ev.status?.type?.state === "post") continue;
+        const comps = ev.competitions?.[0]?.competitors || [];
+        const away = comps.find((c) => c.homeAway === "away"); const home = comps.find((c) => c.homeAway === "home");
+        const label = away && home
+          ? `${normTeamAbbr(away.team?.abbreviation)} @ ${normTeamAbbr(home.team?.abbreviation)}`
+          : comps.map((c) => normTeamAbbr(c.team?.abbreviation)).join(" vs ");
+        for (const comp of comps) {
+          const abbr = normTeamAbbr(comp.team?.abbreviation);
+          if (abbr) matchups[abbr] = label;
+        }
+        try {
+          const summary = await jget(`https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/summary?event=${ev.id}`);
+          for (const team of summary.rosters || []) {
+            const abbr = normTeamAbbr(team.team?.abbreviation || "");
+            for (const ath of team.roster || []) {
+              const name = ath.athlete?.displayName;
+              if (!name || names.has(name)) continue;
+              const rawPos = ath.athlete?.position?.abbreviation || ath.position?.abbreviation || "";
+              const pos = SOC_POS[rawPos] || rawPos || "MID";
+              names.add(name); roster.push({ n: name, pos, tm: abbr, sp: "SOC" });
+            }
+          }
+        } catch {}
+      }
+    } catch {}
     return { players: names.size > 0 ? names : null, matchups, roster };
   }
   const pair = LEAGUES[sport];
