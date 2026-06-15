@@ -472,7 +472,8 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
       <p class="note" style="margin-top:5px">Everyone must shake on it before the draft can start.</p>
     </div>
     <button class="big gold" id="createDraft" style="margin-top:16px">Create draft room</button>
-    <p class="note">You'll get a room code + link to send your friends. Up to 8 drafters.</p>
+    <p class="note" id="createNote">You'll get a room code + link to send your friends. Up to 8 drafters.</p>
+    <p class="note" id="publicNote" style="display:none;color:var(--dim)">⏱ Public rooms auto-start when full (8 players) or auto-close after 20 minutes if not started.</p>
   </section>
 
   <!-- LOBBY -->
@@ -1051,6 +1052,8 @@ $("visGrid").addEventListener("click", (e) => {
   document.querySelectorAll("#visGrid .choice").forEach((c) => c.classList.remove("sel"));
   b.classList.add("sel"); wizPublic = b.getAttribute("data-vis") === "public";
   $("hsSection").style.display = wizPublic ? "none" : "";
+  $("createNote").style.display = wizPublic ? "none" : "";
+  $("publicNote").style.display = wizPublic ? "block" : "none";
 });
 $("createDraft").addEventListener("click", async (e) => {
   const btn = e.currentTarget;
