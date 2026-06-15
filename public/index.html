@@ -273,6 +273,7 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
 
   <div class="top">
     <div class="wordmark">Squabble<b>UP</b></div>
+    <div id="squabbleCount" style="font-size:9.5px;color:var(--dim);opacity:.4;text-align:center;line-height:1.2;flex:1"></div>
     <button class="meChip" id="meChip"><span class="av" id="meAv">🙂</span><span id="meName">…</span></button>
   </div>
 
@@ -280,7 +281,6 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
   <section class="screen" id="scrHome">
     <h1 class="title">Lobby</h1>
     <p class="sub">Start a squabble or jump into one.</p>
-    <div id="squabbleCount" style="display:none;text-align:center;font-size:12px;color:var(--dim);margin:-6px 0 10px;letter-spacing:.3px"></div>
     <div id="inviteList"></div>
     <div class="joinRow">
       <input id="joinCodeIn" placeholder="ROOM CODE" maxlength="12" />
@@ -815,8 +815,7 @@ async function fetchPublicRooms() {
     renderPublicRooms(rooms);
     const el = $("squabbleCount");
     if (el && draftsCreated > 0) {
-      el.textContent = `🔥 ${draftsCreated.toLocaleString()} squabbles drafted so far`;
-      el.style.display = "block";
+      el.textContent = `${draftsCreated.toLocaleString()} squabbles so far`;
     }
   } catch {}
 }
