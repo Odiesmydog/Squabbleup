@@ -512,6 +512,7 @@ app.post("/api/draft/:code/removeseat", ah((req, res) => hostAction(req, res, (s
   if (!st.seats[i] || st.seats[i].userId === st.hostId) return "Can't remove that seat";
   st.seats.splice(i, 1);
 })));
+const COUNTDOWN_MS = 2 * 60 * 1000; // 2-minute warm-up before picks begin
 app.post("/api/draft/:code/start", ah(async (req, res) => {
   const code = req.params.code.toUpperCase();
   const r = await pool.query("SELECT state FROM drafts WHERE code=$1", [code]);
@@ -524,16 +525,30 @@ app.post("/api/draft/:code/start", ah(async (req, res) => {
     const nonBots = st.seats.filter((s) => !s.bot);
     if (!nonBots.every((s) => st.handshake.agreed.includes(s.userId))) return res.status(400).json({ error: "Everyone must shake on it before starting" });
   }
+  // shuffle now so clients see the final order during the countdown
   if (st.public) {
     shuffleSeats(st);
     st.chat.push({ name: "SquabbleUP", av: "🎲", img: "", text: "Draft order shuffled! " + st.seats.map((x) => x.name).join(" → ") + " — let's squabble UP! 🔥", t: Date.now() });
   }
-  st.status = "active";
-  if (st.pickTimer) st.pickStartedAt = Date.now();
+  // countdown phase: keep status "lobby" with startingAt so all clients show timer
+  st.startingAt = Date.now() + COUNTDOWN_MS;
   await pool.query("UPDATE drafts SET state=$1, updated=now() WHERE code=$2", [st, code]);
   broadcast(code).catch(console.error);
-  notifyDraftStart(st, code).catch(() => {});
+  notifyDraftStart(st, code).catch(() => {}); // push: "starting in 2 min"
   res.json(st);
+  // actually flip to active after countdown
+  setTimeout(async () => {
+    try {
+      const r2 = await pool.query("SELECT state FROM drafts WHERE code=$1", [code]);
+      const st2 = r2.rows[0]?.state;
+      if (!st2 || st2.status !== "lobby" || !st2.startingAt) return;
+      delete st2.startingAt;
+      st2.status = "active";
+      if (st2.pickTimer) st2.pickStartedAt = Date.now();
+      await pool.query("UPDATE drafts SET state=$1, updated=now() WHERE code=$2", [st2, code]);
+      broadcast(code).catch(console.error);
+    } catch (e) { console.error("countdown start failed", e.message); }
+  }, COUNTDOWN_MS);
 }));
 
 function shuffleSeats(st) {
@@ -732,6 +747,7 @@ async function cleanupStaleLobbies() {
       `SELECT code FROM drafts
        WHERE (state->>'status') = 'lobby'
        AND (state->>'public') = 'true'
+       AND (state->>'startingAt') IS NULL
        AND (
          ((state->>'createdAt') IS NOT NULL AND (state->>'createdAt')::bigint < $1)
          OR ((state->>'createdAt') IS NULL AND updated < now() - interval '20 minutes')
@@ -755,7 +771,7 @@ async function cleanupStaleLobbies() {
       broadcast(row.code).catch(() => {});
       console.log("Auto-removed stale private lobby:", row.code);
     }
-    // Also nuke active timed drafts that have been completely idle for 4+ hours
+    // Nuke timed active drafts idle for 4+ hours (timer expired, nobody picking)
     const staleActive = await pool.query(
       `SELECT code FROM drafts
        WHERE (state->>'status') = 'active'
@@ -766,6 +782,17 @@ async function cleanupStaleLobbies() {
       await pool.query("DELETE FROM drafts WHERE code=$1", [row.code]);
       broadcast(row.code).catch(() => {});
       console.log("Auto-removed stale timed active draft:", row.code);
+    }
+    // Also nuke ALL active drafts idle for 24+ hours (covers no-timer stuck drafts)
+    const allStaleActive = await pool.query(
+      `SELECT code FROM drafts
+       WHERE (state->>'status') = 'active'
+       AND updated < now() - interval '24 hours'`
+    );
+    for (const row of allStaleActive.rows) {
+      await pool.query("DELETE FROM drafts WHERE code=$1", [row.code]);
+      broadcast(row.code).catch(() => {});
+      console.log("Auto-removed stale active draft (24h idle):", row.code);
     }
   } catch (e) { console.error("lobby cleanup", e.message); }
 }

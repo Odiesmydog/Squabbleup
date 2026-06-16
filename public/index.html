@@ -533,6 +533,7 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
     <button class="big flat" id="lobbyCloseBtn" style="display:none;margin-top:10px;color:var(--red)">Cancel &amp; close room</button>
     <p class="note" id="lobbyNote">Waiting for the host to start…</p>
     <p class="note" id="lobbyExpiry" style="display:none;color:var(--dim)"></p>
+    <div id="lobbyCountdown" style="display:none;text-align:center;padding:18px 0 8px"></div>
     <div class="stepLbl">Lobby chat</div>
     <div class="chatBox" style="height:34vh">
       <div class="chatMsgs" id="lobbyChat"></div>
@@ -1221,30 +1222,51 @@ function renderLobby() {
   $("lobbyCloseBtn").style.display = isHost ? "block" : "none";
   $("lobbyLeaveTopBtn").style.display = !isHost ? "inline-flex" : "none";
 
-  // countdown timer for public rooms (auto-close after 20 min)
-  if (draft.public && draft.createdAt) {
-    function _updateExpiry() {
-      const rem = draft.createdAt + 20 * 60 * 1000 - Date.now();
-      const el = $("lobbyExpiry");
-      if (!el) return;
-      if (rem <= 0) { el.textContent = "⏱ Room closing…"; return; }
-      const m = Math.floor(rem / 60000), s = Math.floor((rem % 60000) / 1000);
-      el.textContent = `⏱ Room auto-closes in ${m}:${String(s).padStart(2, "0")} if not started`;
-    }
-    $("lobbyExpiry").style.display = "block";
-    _updateExpiry();
-    if (!_lobbyExpiry) _lobbyExpiry = setInterval(_updateExpiry, 1000);
-  } else {
+  // ── draft-starting countdown (fires when host clicks Start) ──
+  const cdEl = $("lobbyCountdown");
+  if (draft.startingAt) {
+    $("hostTools").style.display = "none";
+    $("lobbyLeaveBtn").style.display = "none";
+    $("lobbyCloseBtn").style.display = "none";
+    $("lobbyNote").style.display = "none";
     $("lobbyExpiry").style.display = "none";
     if (_lobbyExpiry) { clearInterval(_lobbyExpiry); _lobbyExpiry = null; }
+    cdEl.style.display = "block";
+    function _tickCountdown() {
+      const rem = Math.max(0, draft.startingAt - Date.now());
+      const m = Math.floor(rem / 60000), s = Math.floor((rem % 60000) / 1000);
+      cdEl.innerHTML = `<div style="font-size:13px;color:var(--dim);font-family:var(--display);font-weight:700;letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">Draft starting</div><div style="font-size:52px;font-family:var(--display);font-weight:900;color:var(--green);letter-spacing:2px;line-height:1">${m}:${String(s).padStart(2,"0")}</div><div style="font-size:12px;color:var(--dim);margin-top:6px">Get ready — picks begin when the timer hits zero!</div>`;
+    }
+    _tickCountdown();
+    if (!_lobbyExpiry) _lobbyExpiry = setInterval(_tickCountdown, 500);
+  } else {
+    cdEl.style.display = "none";
+    $("lobbyNote").style.display = "";
+    // countdown timer for public rooms (auto-close after 20 min)
+    if (draft.public && draft.createdAt) {
+      function _updateExpiry() {
+        const rem = draft.createdAt + 20 * 60 * 1000 - Date.now();
+        const el = $("lobbyExpiry");
+        if (!el) return;
+        if (rem <= 0) { el.textContent = "⏱ Room closing…"; return; }
+        const m = Math.floor(rem / 60000), s = Math.floor((rem % 60000) / 1000);
+        el.textContent = `⏱ Room auto-closes in ${m}:${String(s).padStart(2, "0")} if not started`;
+      }
+      $("lobbyExpiry").style.display = "block";
+      _updateExpiry();
+      if (!_lobbyExpiry) _lobbyExpiry = setInterval(_updateExpiry, 1000);
+    } else {
+      $("lobbyExpiry").style.display = "none";
+      if (_lobbyExpiry) { clearInterval(_lobbyExpiry); _lobbyExpiry = null; }
+    }
   }
-  $("codeEditBtn").style.display = isHost ? "inline-block" : "none";
+  $("codeEditBtn").style.display = isHost && !draft.startingAt ? "inline-block" : "none";
 
   // handshake mode
   const hs = draft.handshake;
-  $("handshakeBox").style.display = hs ? "block" : "none";
+  $("handshakeBox").style.display = (hs && !draft.startingAt) ? "block" : "none";
   let hsBlocking = false;
-  if (hs) {
+  if (hs && !draft.startingAt) {
     const agreed = hs.agreed || [];
     const nonBots = draft.seats.filter((s) => !s.bot);
     const allAgreed = nonBots.every((s) => agreed.includes(s.userId));
@@ -1259,10 +1281,12 @@ function renderLobby() {
     hsBlocking = !allAgreed;
   }
 
-  $("lobbyNote").textContent = isHost
-    ? (draft.seats.length < 2 ? "Invite a friend or add a bot, then start." : hs && hsBlocking ? "Waiting for everyone to shake on it…" : "Start whenever you're ready — no need to fill all 8 spots.")
-    : "Waiting for the host to start…";
-  $("startBtn").disabled = draft.seats.length < 2 || hsBlocking;
+  if (!draft.startingAt) {
+    $("lobbyNote").textContent = isHost
+      ? (draft.seats.length < 2 ? "Invite a friend or add a bot, then start." : hs && hsBlocking ? "Waiting for everyone to shake on it…" : "Start whenever you're ready — no need to fill all 8 spots.")
+      : "Waiting for the host to start…";
+    $("startBtn").disabled = draft.seats.length < 2 || hsBlocking;
+  }
 }
 
 $("hsAgreeBtn").addEventListener("click", async () => {
