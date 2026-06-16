@@ -162,7 +162,7 @@ async function notifyDraftStart(st, code) {
       try {
         await webpush.sendNotification(row.subscription, JSON.stringify({
           title: `${st.name} is starting! ${em}`,
-          body: "Draft begins in 2 min — get ready to squabble UP! 🔥",
+          body: "Draft begins in 45 seconds — get ready to squabble UP! 🔥",
           data: { draftCode: code },
         }));
       } catch (err) {
@@ -512,7 +512,7 @@ app.post("/api/draft/:code/removeseat", ah((req, res) => hostAction(req, res, (s
   if (!st.seats[i] || st.seats[i].userId === st.hostId) return "Can't remove that seat";
   st.seats.splice(i, 1);
 })));
-const COUNTDOWN_MS = 2 * 60 * 1000; // 2-minute warm-up before picks begin
+const COUNTDOWN_MS = 45 * 1000; // 45-second warm-up before picks begin
 app.post("/api/draft/:code/start", ah(async (req, res) => {
   const code = req.params.code.toUpperCase();
   const r = await pool.query("SELECT state FROM drafts WHERE code=$1", [code]);
@@ -534,7 +534,7 @@ app.post("/api/draft/:code/start", ah(async (req, res) => {
   st.startingAt = Date.now() + COUNTDOWN_MS;
   await pool.query("UPDATE drafts SET state=$1, updated=now() WHERE code=$2", [st, code]);
   broadcast(code).catch(console.error);
-  notifyDraftStart(st, code).catch(() => {}); // push: "starting in 2 min"
+  notifyDraftStart(st, code).catch(() => {}); // push: "starting in 45s"
   res.json(st);
   // actually flip to active after countdown
   setTimeout(async () => {
