@@ -1193,8 +1193,8 @@ function leaveDraft() {
 function routeDraft() {
   if (!draft || (!_connected && !draft.local)) return;
   $("bnav").style.display = "none";
-  if (draft.status === "lobby") renderLobby();
-  else if (draft.status === "active") renderRoom();
+  if (draft.status === "lobby" && !draft.startingAt) renderLobby();
+  else if (draft.status === "lobby" || draft.status === "active") renderRoom();
   else renderDone();
   if (!draft.local) renderChats();
 }
@@ -1473,27 +1473,49 @@ function renderRoom() {
     todaysPlayers = null; nextGameDay = null; todayMatchups = {}; todaysRoster = []; draftRoomProj = {}; playerStatus = {};
     fetchTodaysTeams(draft.sport).then(() => renderRoom());
   }
+  const isCountdown = draft.status === "lobby" && !!draft.startingAt;
   // only friends-only host can cancel an active room
-  $("roomCloseBtn").style.display = (!draft.local && !draft.public && draft.hostId === me.id) ? "inline-flex" : "none";
+  $("roomCloseBtn").style.display = (!draft.local && !draft.public && draft.hostId === me.id && !isCountdown) ? "inline-flex" : "none";
   document.querySelector('[data-tab="chat"]').style.display = draft.local ? "none" : "block";
   const round = roundOf(draft), turnIdx = pickerIndex(draft);
   const reversed = (round - 1) % 2 === 1;
   const t = draft.seats[turnIdx];
-  const myTurn = draft.local ? !t.bot : t.userId === me.id;
+  const myTurn = !isCountdown && (draft.local ? !t.bot : t.userId === me.id);
 
   $("railRow").innerHTML = draft.seats.map((s, i) =>
-    `<div class="railSeat ${i === turnIdx ? "now" : ""}">${avHtml(s)}<span class="rn">${esc(s.name)}</span></div>`).join("");
-  $("railLbl").textContent = `Round ${round} of ${draft.rounds} · ${reversed ? "← snaking back" : "picking this way →"}`;
-  $("snakeIcon").classList.toggle("flip", reversed);
+    `<div class="railSeat ${!isCountdown && i === turnIdx ? "now" : ""}">${avHtml(s)}<span class="rn">${esc(s.name)}</span></div>`).join("");
+  $("railLbl").textContent = isCountdown ? `Draft order · Round 1 of ${draft.rounds}` : `Round ${round} of ${draft.rounds} · ${reversed ? "← snaking back" : "picking this way →"}`;
+  $("snakeIcon").classList.toggle("flip", !isCountdown && reversed);
 
-  $("turnBanner").className = "turnBanner" + (myTurn ? "" : " waiting");
-  $("turnBanner").textContent = draft.local
-    ? (t.bot ? `${t.name} is thinking…` : `📱 Pass the phone — ${t.name} picks!`)
-    : (myTurn ? "Your pick! 🔥" : t.bot ? `${t.name} is thinking…` : `${t.name} is on the clock…`);
+  if (isCountdown) {
+    $("turnBanner").className = "turnBanner waiting";
+    const cd = $("pickCountdown");
+    cd.style.display = "block";
+    if (!_pickTimerT) {
+      _pickTimerT = setInterval(() => {
+        if (!draft?.startingAt) { clearInterval(_pickTimerT); _pickTimerT = null; cd.style.display = "none"; return; }
+        const rem = Math.max(0, Math.ceil((draft.startingAt - Date.now()) / 1000));
+        const m = Math.floor(rem / 60), s = rem % 60;
+        $("turnBanner").textContent = `Draft starting in ${m}:${String(s).padStart(2, "0")} — browse the pool!`;
+        cd.style.display = "none";
+      }, 500);
+    }
+    $("turnBanner").textContent = (() => {
+      const rem = Math.max(0, Math.ceil((draft.startingAt - Date.now()) / 1000));
+      const m = Math.floor(rem / 60), s = rem % 60;
+      return `Draft starting in ${m}:${String(s).padStart(2, "0")} — browse the pool!`;
+    })();
+  } else {
+    if (_pickTimerT && draft.status === "active") { clearInterval(_pickTimerT); _pickTimerT = null; }
+    $("turnBanner").className = "turnBanner" + (myTurn ? "" : " waiting");
+    $("turnBanner").textContent = draft.local
+      ? (t.bot ? `${t.name} is thinking…` : `📱 Pass the phone — ${t.name} picks!`)
+      : (myTurn ? "Your pick! 🔥" : t.bot ? `${t.name} is thinking…` : `${t.name} is on the clock…`);
+  }
 
-  // pick countdown timer
+  // pick countdown timer (only relevant when draft is active, not countdown phase)
   const cd = $("pickCountdown");
-  if (draft.pickTimer && draft.pickStartedAt && !draft.local) {
+  if (!isCountdown && draft.pickTimer && draft.pickStartedAt && !draft.local) {
     cd.style.display = "block";
     // restart interval only when a new pick is made (pickCount changed)
     if (draft.picks.length !== _lastPickCount) {
@@ -1557,7 +1579,7 @@ function renderRoom() {
     return `<div class="pRow${isOut ? " pRowOut" : ""}" data-pname="${esc(p.n)}">
       ${thumb}
       <div class="pi"><div class="pn">${esc(p.n)}${statusBadge}</div><div class="pd"><span class="spTag">${p.sp}</span>${p.pos} · ${game}${recStr}${projStr ? " · " + projStr : ""}</div></div>
-      ${myTurn && !isOut ? `<button class="draftBtn" data-pick="${esc(p.n)}">Draft</button>` : (isOut ? `<span class="outLbl">${p.livelock ? "🔒 Live" : "🤕 Out"}</span>` : "")}
+      ${isCountdown ? `<span class="outLbl" style="opacity:.4">🔒</span>` : myTurn && !isOut ? `<button class="draftBtn" data-pick="${esc(p.n)}">Draft</button>` : (isOut ? `<span class="outLbl">${p.livelock ? "🔒 Live" : "🤕 Out"}</span>` : "")}
     </div>`;
   }).join("");
   if (activeTab === "board") renderBoard("tabBoard");
