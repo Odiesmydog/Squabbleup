@@ -233,39 +233,48 @@ async function _fetchSchedule(sport) {
       return { players: names.size > 0 ? names : null, matchups: {}, roster };
     } catch { return { players: null, matchups: {}, roster: [] }; }
   }
-  // Tennis: check ATP/WTA events today
+  // Tennis: pull actual match competitors from ESPN groupings (matches live under
+  // ev.groupings[].competitions[], NOT ev.competitions[] which is always empty for tennis)
+  // Check today + tomorrow so Monday rest days still show next day's draws.
   if (sport === "TEN") {
-    const day = dstr(new Date()); const names = new Set(); const matchups = {}; const roster = [];
+    const names = new Set(); const matchups = {}; const roster = [];
+    const days = [dstr(new Date()), dstr(new Date(Date.now() + 864e5))];
     for (const tour of ["atp", "wta"]) {
-      try {
-        const sb = await jget(`https://site.api.espn.com/apis/site/v2/sports/tennis/${tour}/scoreboard?dates=${day}`);
-        // include "pre" (upcoming) and "in" (in-progress) — exclude only "post" (finished)
-        const active = (sb.events || []).filter((ev) => ev.status?.type?.state !== "post");
-        if (!active.length) continue;
-        const ev0 = active.find((e) => e.status?.type?.state === "in") || active[0];
-        const tournName = ev0?.shortName || ev0?.name || `${tour.toUpperCase()} Tennis`;
-        // build player → "vs LastName · Tournament" lookup from individual match competitions
-        const playerMatchInfo = new Map();
-        for (const ev of active) {
-          for (const comp of ev.competitions || []) {
-            if (comp.status?.type?.state === "post") continue;
-            const cs = comp.competitors || [];
-            if (cs.length < 2) continue;
-            const [aN, bN] = cs.map((c) => c.athlete?.displayName || "");
-            if (!aN || !bN) continue;
-            const shortB = bN.split(" ").pop();
-            const shortA = aN.split(" ").pop();
-            const tn = ev.shortName || ev.name || tournName;
-            playerMatchInfo.set(aN, `vs ${shortB} · ${tn}`);
-            playerMatchInfo.set(bN, `vs ${shortA} · ${tn}`);
+      const pos = tour === "atp" ? "ATP" : "WTA";
+      for (const day of days) {
+        try {
+          const sb = await jget(`https://site.api.espn.com/apis/site/v2/sports/tennis/${tour}/scoreboard?dates=${day}`);
+          for (const ev of sb.events || []) {
+            const tournName = ev.shortName || ev.name || `${tour.toUpperCase()} Tennis`;
+            // flatten all matches from groupings (primary) and direct competitions (fallback)
+            const allMatches = [];
+            for (const g of ev.groupings || []) for (const m of g.competitions || []) allMatches.push(m);
+            for (const m of ev.competitions || []) allMatches.push(m);
+            for (const match of allMatches) {
+              const state = match.status?.type?.state;
+              if (state === "post") continue;
+              const cs = match.competitors || [];
+              if (cs.length < 2) continue;
+              const nameA = cs[0].athlete?.displayName;
+              const nameB = cs[1].athlete?.displayName;
+              if (!nameA || !nameB) continue;
+              const livelock = state === "in";
+              if (!names.has(nameA)) {
+                names.add(nameA);
+                roster.push({ n: nameA, pos, tm: "TEN", sp: "TEN",
+                  ev: `vs ${nameB.split(" ").pop()} · ${tournName}`,
+                  ...(livelock ? { livelock: true } : {}) });
+              }
+              if (!names.has(nameB)) {
+                names.add(nameB);
+                roster.push({ n: nameB, pos, tm: "TEN", sp: "TEN",
+                  ev: `vs ${nameA.split(" ").pop()} · ${tournName}`,
+                  ...(livelock ? { livelock: true } : {}) });
+              }
+            }
           }
-        }
-        const pos = tour === "atp" ? "ATP" : "WTA";
-        for (const p of PLAYERS.filter((x) => x.sp === "TEN" && x.pos === pos)) {
-          names.add(p.n); matchups[p.tm] = tournName;
-          roster.push({ ...p, ev: playerMatchInfo.get(p.n) || tournName });
-        }
-      } catch {}
+        } catch {}
+      }
     }
     return { players: names.size > 0 ? names : null, matchups, roster };
   }
