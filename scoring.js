@@ -571,10 +571,13 @@ async function pollGolfDay(pool, dayDate) {
       const name = c.athlete?.displayName;
       const poolName = name && matchPool(idx, name);
       if (!poolName) continue;
-      const pos = parseInt(String(c.status?.position?.id || c.order || "0").replace(/\D/g, "")) || 0;
+      // use only ESPN's leaderboard position ID — never fall back to c.order (that's just
+      // the competitor's index in the field, not an actual score position)
+      const pos = parseInt(String(c.status?.position?.id || "0").replace(/\D/g, "")) || 0;
+      if (!pos) continue; // no position yet = no score, don't write a 0 row
       const final = ev.status?.type?.completed;
-      const pts = golfPoints(pos); // award live position points, update when final
-      const line = pos ? `position ${pos}${final ? " (final)" : " (live)"}` : "";
+      const pts = golfPoints(pos);
+      const line = `position ${pos}${final ? " (final)" : " (live)"}`;
       await upsertScore(pool, dayDate, "GOLF", poolName, pts, line);
     }
   }
