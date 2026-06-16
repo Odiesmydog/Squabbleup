@@ -45,8 +45,10 @@ async function initDb() {
     CREATE TABLE IF NOT EXISTS player_scores (
       day DATE NOT NULL, sport TEXT NOT NULL, player TEXT NOT NULL,
       pts REAL NOT NULL DEFAULT 0, line TEXT, updated TIMESTAMPTZ DEFAULT now(),
+      first_scored_at TIMESTAMPTZ DEFAULT now(),
       PRIMARY KEY (day, sport, player)
     );
+    ALTER TABLE player_scores ADD COLUMN IF NOT EXISTS first_scored_at TIMESTAMPTZ DEFAULT now();
     CREATE TABLE IF NOT EXISTS invites (
       id BIGSERIAL PRIMARY KEY,
       draft_code TEXT NOT NULL, to_user UUID NOT NULL,

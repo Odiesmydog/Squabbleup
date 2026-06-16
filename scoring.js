@@ -646,7 +646,7 @@ async function pollSocDay(pool, sport, dayDate) {
 
 async function upsertScore(pool, dayDate, sport, player, pts, line) {
   await pool.query(
-    `INSERT INTO player_scores (day, sport, player, pts, line) VALUES ($1,$2,$3,$4,$5)
+    `INSERT INTO player_scores (day, sport, player, pts, line, first_scored_at) VALUES ($1,$2,$3,$4,$5,now())
      ON CONFLICT (day, sport, player) DO UPDATE SET pts=$4, line=$5, updated=now()`,
     [dayDate.toISOString().slice(0, 10), sport, player, pts, line]
   );
@@ -674,8 +674,9 @@ async function draftScores(pool, state) {
             (ARRAY_AGG(line ORDER BY day DESC))[1] AS line
      FROM player_scores
      WHERE player = ANY($1) AND day >= $2::date AND day <= $3::date
+       AND first_scored_at >= $4
      GROUP BY player`,
-    [players, new Date(state.scoring.start).toISOString().slice(0, 10), new Date(state.scoring.end).toISOString().slice(0, 10)]
+    [players, new Date(state.scoring.start).toISOString().slice(0, 10), new Date(state.scoring.end).toISOString().slice(0, 10), new Date(state.scoring.start).toISOString()]
   );
   const out = {};
   for (const row of r.rows) out[row.player] = { pts: Math.round(row.pts * 10) / 10, line: row.line || "" };
@@ -690,8 +691,9 @@ async function draftScoreDetail(pool, state) {
   const r = await pool.query(
     `SELECT player, day, pts, line FROM player_scores
      WHERE player = ANY($1) AND day >= $2::date AND day <= $3::date
+       AND first_scored_at >= $4
      ORDER BY day DESC`,
-    [players, new Date(state.scoring.start).toISOString().slice(0, 10), new Date(state.scoring.end).toISOString().slice(0, 10)]
+    [players, new Date(state.scoring.start).toISOString().slice(0, 10), new Date(state.scoring.end).toISOString().slice(0, 10), new Date(state.scoring.start).toISOString()]
   );
   const out = {};
   for (const row of r.rows) {

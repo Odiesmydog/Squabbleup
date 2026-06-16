@@ -1183,7 +1183,7 @@ function connect(code) {
 }
 function leaveDraft() {
   _connected = false;
-  if (ws) { try { ws.close(); } catch {} ws = null; }
+  if (ws) { try { ws.onclose = null; ws.close(); } catch {} ws = null; }
   if (pollT) { clearInterval(pollT); pollT = null; }
   if (_lobbyExpiry) { clearInterval(_lobbyExpiry); _lobbyExpiry = null; }
   if (scoresT) { clearInterval(scoresT); scoresT = null; }
