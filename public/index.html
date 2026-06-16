@@ -954,7 +954,7 @@ function renderTabs() {
   const scoringDrafts = drafts.filter((d) => d.status === "done" && !d.archived && d.scoringEnd && now < d.scoringEnd);
   const localInProgress = locals().map((d, i) => ({ d, i })).filter((x) => x.d.picks.length < x.d.seats.length * x.d.rounds);
   $("liveList").innerHTML =
-    (activeDrafts.map((d) => dCardHtml(d, {})).join("") +
+    (activeDrafts.map((d) => dCardHtml(d, d.hostId === me.id ? { close: true } : {})).join("") +
      scoringDrafts.map((d) => dCardHtml(d, { close: true })).join("") +
      localInProgress.map((x) => localCardHtml(x.d, x.i)).join("")) ||
     `<div class="emptyBox"><div class="e">🔴</div>Nothing live right now.<br />Active drafts and scoring matchups appear here.</div>`;

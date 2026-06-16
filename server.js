@@ -783,6 +783,18 @@ async function cleanupStaleLobbies() {
       broadcast(row.code).catch(() => {});
       console.log("Auto-removed stale timed active draft:", row.code);
     }
+    // Nuke active drafts where nobody ever made a single pick — stuck at the gate
+    const noPicks = await pool.query(
+      `SELECT code FROM drafts
+       WHERE (state->>'status') = 'active'
+       AND jsonb_array_length(state->'picks') = 0
+       AND updated < now() - interval '2 hours'`
+    );
+    for (const row of noPicks.rows) {
+      await pool.query("DELETE FROM drafts WHERE code=$1", [row.code]);
+      broadcast(row.code).catch(() => {});
+      console.log("Auto-removed stuck active draft (0 picks, 2h idle):", row.code);
+    }
     // Also nuke ALL active drafts idle for 24+ hours (covers no-timer stuck drafts)
     const allStaleActive = await pool.query(
       `SELECT code FROM drafts
