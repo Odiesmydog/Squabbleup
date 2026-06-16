@@ -171,10 +171,12 @@ async function _fetchSchedule(sport) {
       // prefer "in" (live) over "pre" for the tournament name
       const ev0 = active.find((e) => e.status?.type?.state === "in") || active[0];
       const tournName = ev0?.shortName || ev0?.name || "PGA Tour";
+      const roundDetail = ev0?.status?.type?.shortDetail || "";
+      const golfLabel = roundDetail ? `${tournName} · ${roundDetail}` : tournName;
       const names = new Set(); const matchups = {}; const roster = [];
       for (const p of PLAYERS.filter((x) => x.sp === "GOLF")) {
-        names.add(p.n); matchups[p.tm] = tournName;
-        roster.push(p);
+        names.add(p.n); matchups[p.tm] = golfLabel;
+        roster.push({ ...p, ev: golfLabel });
       }
       return { players: names.size > 0 ? names : null, matchups, roster };
     } catch { return { players: null, matchups: {}, roster: [] }; }
@@ -223,10 +225,26 @@ async function _fetchSchedule(sport) {
         if (!active.length) continue;
         const ev0 = active.find((e) => e.status?.type?.state === "in") || active[0];
         const tournName = ev0?.shortName || ev0?.name || `${tour.toUpperCase()} Tennis`;
+        // build player → "vs LastName · Tournament" lookup from individual match competitions
+        const playerMatchInfo = new Map();
+        for (const ev of active) {
+          for (const comp of ev.competitions || []) {
+            if (comp.status?.type?.state === "post") continue;
+            const cs = comp.competitors || [];
+            if (cs.length < 2) continue;
+            const [aN, bN] = cs.map((c) => c.athlete?.displayName || "");
+            if (!aN || !bN) continue;
+            const shortB = bN.split(" ").pop();
+            const shortA = aN.split(" ").pop();
+            const tn = ev.shortName || ev.name || tournName;
+            playerMatchInfo.set(aN, `vs ${shortB} · ${tn}`);
+            playerMatchInfo.set(bN, `vs ${shortA} · ${tn}`);
+          }
+        }
         const pos = tour === "atp" ? "ATP" : "WTA";
         for (const p of PLAYERS.filter((x) => x.sp === "TEN" && x.pos === pos)) {
           names.add(p.n); matchups[p.tm] = tournName;
-          roster.push(p);
+          roster.push({ ...p, ev: playerMatchInfo.get(p.n) || tournName });
         }
       } catch {}
     }
@@ -353,8 +371,9 @@ async function _fetchSchedule(sport) {
     }
     const MLB_PITCHER_POS = new Set(["SP", "RP", "P", "LHP", "RHP"]);
     for (const ev of sb.events || []) {
-      // exclude only fully finished games — "pre" (not started) and "in" (in progress) are both draftable
-      if (ev.status?.type?.state === "post") continue;
+      // MLB: only draft from games not yet started; all others allow in-progress too
+      const evState = ev.status?.type?.state;
+      if (sport === "MLB" ? evState !== "pre" : evState === "post") continue;
       const comps = ev.competitions?.[0]?.competitors || [];
       const away = comps.find((c) => c.homeAway === "away");
       const home = comps.find((c) => c.homeAway === "home");

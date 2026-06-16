@@ -152,6 +152,28 @@ async function notifyPick(userId, draftName, code) {
   }));
 }
 
+async function notifyDraftStart(st, code) {
+  const userIds = st.seats.filter((s) => s.userId).map((s) => s.userId);
+  const sportEmoji = { NFL:"🏈",NBA:"🏀",MLB:"⚾",NHL:"🏒",GOLF:"⛳",TEN:"🎾",CBB:"🏀",CFB:"🏈",UFC:"🥊",WCUP:"🌍",SOC:"⚽" };
+  const em = sportEmoji[st.sport] || "🔥";
+  await Promise.all(userIds.map(async (userId) => {
+    const rows = (await pool.query("SELECT subscription FROM push_subscriptions WHERE user_id=$1", [userId])).rows;
+    await Promise.all(rows.map(async (row) => {
+      try {
+        await webpush.sendNotification(row.subscription, JSON.stringify({
+          title: `${st.name} is starting! ${em}`,
+          body: "Draft begins in 2 min — get ready to squabble UP! 🔥",
+          data: { draftCode: code },
+        }));
+      } catch (err) {
+        if (err.statusCode === 410 || err.statusCode === 404) {
+          await pool.query("DELETE FROM push_subscriptions WHERE user_id=$1 AND endpoint=$2", [userId, row.subscription.endpoint]);
+        }
+      }
+    }));
+  }));
+}
+
 
 // ---------------- bot picks (server-side) ----------------
 const PLAYERS = require("./public/players-data.js");
@@ -480,12 +502,17 @@ app.post("/api/draft/:code/removeseat", ah((req, res) => hostAction(req, res, (s
   if (!st.seats[i] || st.seats[i].userId === st.hostId) return "Can't remove that seat";
   st.seats.splice(i, 1);
 })));
-app.post("/api/draft/:code/start", ah((req, res) => hostAction(req, res, (st) => {
-  if (st.status !== "lobby") return "Already started";
-  if (st.seats.length < 2) return "Need at least 2 drafters — invite a friend or add a bot";
+app.post("/api/draft/:code/start", ah(async (req, res) => {
+  const code = req.params.code.toUpperCase();
+  const r = await pool.query("SELECT state FROM drafts WHERE code=$1", [code]);
+  const st = r.rows[0]?.state;
+  if (!st) return res.status(404).json({ error: "Draft not found" });
+  if (st.hostId !== req.body.hostId) return res.status(403).json({ error: "Only the host can do that" });
+  if (st.status !== "lobby") return res.status(400).json({ error: "Already started" });
+  if (st.seats.length < 2) return res.status(400).json({ error: "Need at least 2 drafters — invite a friend or add a bot" });
   if (st.handshake) {
     const nonBots = st.seats.filter((s) => !s.bot);
-    if (!nonBots.every((s) => st.handshake.agreed.includes(s.userId))) return "Everyone must shake on it before starting";
+    if (!nonBots.every((s) => st.handshake.agreed.includes(s.userId))) return res.status(400).json({ error: "Everyone must shake on it before starting" });
   }
   if (st.public) {
     shuffleSeats(st);
@@ -493,7 +520,11 @@ app.post("/api/draft/:code/start", ah((req, res) => hostAction(req, res, (st) =>
   }
   st.status = "active";
   if (st.pickTimer) st.pickStartedAt = Date.now();
-})));
+  await pool.query("UPDATE drafts SET state=$1, updated=now() WHERE code=$2", [st, code]);
+  broadcast(code).catch(console.error);
+  notifyDraftStart(st, code).catch(() => {});
+  res.json(st);
+}));
 
 function shuffleSeats(st) {
   for (let i = st.seats.length - 1; i > 0; i--) {
@@ -701,6 +732,18 @@ async function cleanupStaleLobbies() {
       await pool.query("DELETE FROM drafts WHERE code=$1", [row.code]);
       broadcast(row.code);
       console.log("Auto-closed expired public lobby:", row.code);
+    }
+    // Also nuke active timed drafts that have been completely idle for 4+ hours
+    const staleActive = await pool.query(
+      `SELECT code FROM drafts
+       WHERE (state->>'status') = 'active'
+       AND (state->>'pickTimer') IS NOT NULL
+       AND updated < now() - interval '4 hours'`
+    );
+    for (const row of staleActive.rows) {
+      await pool.query("DELETE FROM drafts WHERE code=$1", [row.code]);
+      broadcast(row.code).catch(() => {});
+      console.log("Auto-removed stale timed active draft:", row.code);
     }
   } catch (e) { console.error("lobby cleanup", e.message); }
 }

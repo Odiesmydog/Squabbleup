@@ -1492,7 +1492,7 @@ function renderRoom() {
   $("posFilters").innerHTML = poses.map((p) => `<button class="fchip ${posFilter === p ? "on" : ""}" data-pos="${p}">${p}</button>`).join("");
 
   $("pool").innerHTML = availPlayers().slice(0, 50).map((p) => {
-    const game = todayMatchups[p.tm] || p.tm;
+    const game = p.ev || todayMatchups[p.tm] || p.tm;
     const proj = draftRoomProj[p.n];
     const projStr = proj ? `<span class="projTag">${proj.proj.toFixed(1)} proj${proj.source === "sleeper" ? " 🔮" : ""}</span>` : "";
     const st = playerStatus[p.n];
@@ -1566,7 +1566,7 @@ function showPDetail(pname) {
   if (!p) return;
   const st = playerStatus[pname];
   const proj = draftRoomProj[pname];
-  const game = todayMatchups[p.tm] || p.tm;
+  const game = p.ev || todayMatchups[p.tm] || p.tm;
   const thumb = st?.thumb
     ? `<img src="${st.thumb}" onerror="this.style.display='none'" alt="" style="width:64px;height:64px;border-radius:12px;object-fit:cover" />`
     : `<div style="width:64px;height:64px;border-radius:12px;background:var(--raised);display:flex;align-items:center;justify-content:center;font-size:28px">${p.n[0]}</div>`;
