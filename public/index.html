@@ -320,7 +320,7 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
     <div class="stepLbl" style="margin-top:20px">How scoring works</div>
     <div class="bCol" style="cursor:default">
       <div class="bPick"><span class="rd">1</span><span>Finish a draft — that locks your roster.</span></div>
-      <div class="bPick"><span class="rd">2</span><span>A scoring window opens — 1 day for NBA/MLB/NHL/UFC/Soccer/World Cup, through end of tournament week for Golf (Thu–Sun), 7 days for NFL. Your players earn fantasy points from their real games.</span></div>
+      <div class="bPick"><span class="rd">2</span><span>A scoring window opens — 1 day for NBA/MLB/NHL/UFC/Soccer, through end of tournament week for Golf (Thu–Sun), 7 days for NFL. Your players earn fantasy points from their real games.</span></div>
       <div class="bPick"><span class="rd">3</span><span>Stats come from live box scores, refreshed every few minutes — identical for everyone in the draft.</span></div>
       <div class="bPick"><span class="rd">4</span><span>Highest total when the window closes wins the squabble. 👑</span></div>
     </div>
@@ -388,7 +388,7 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
         <div class="ruleNote">Max: 18 pts (R1 KO/TKO or Sub). Decision win = 10 pts. Draft fighters on tonight's card.</div>
       </div>
       <div class="ruleCard">
-        <div class="ruleHead">🌍 World Cup &amp; ⚽ Soccer</div>
+        <div class="ruleHead">⚽ Soccer</div>
         <div class="ruleLine"><span>Goal scored</span><span>+6</span></div>
         <div class="ruleLine"><span>Assist</span><span>+4</span></div>
         <div class="ruleLine"><span>Goalkeeper save</span><span>+1</span></div>
@@ -396,7 +396,7 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
         <div class="ruleLine bad"><span>Yellow card</span><span>-1</span></div>
         <div class="ruleLine bad"><span>Red card</span><span>-3</span></div>
         <div class="ruleLine bad"><span>Own goal</span><span>-2</span></div>
-        <div class="ruleNote">World Cup: draft players from today's matches. Soccer: top leagues worldwide — MLS, Premier League, Champions League &amp; more.</div>
+        <div class="ruleNote">Draft players from today's pre-game matches — World Cup, MLS, Premier League, Champions League &amp; more. In-progress matches are locked.</div>
       </div>
     </div>
   </section>
@@ -457,7 +457,6 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
       <button class="choice" data-sp="CBB"><span class="e">🏀</span>NCAA BB</button>
       <button class="choice" data-sp="CFB"><span class="e">🏈</span>NCAA FB</button>
       <button class="choice" data-sp="UFC"><span class="e">🥊</span>UFC</button>
-      <button class="choice" data-sp="WCUP"><span class="e">🌍</span>World Cup</button>
       <button class="choice" data-sp="SOC"><span class="e">⚽</span>Soccer</button>
     </div>
     <div class="stepLbl">2 · How many rounds?</div>
@@ -617,7 +616,6 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
       <button class="choice" data-sp="CBB"><span class="e">🏀</span>NCAA BB</button>
       <button class="choice" data-sp="CFB"><span class="e">🏈</span>NCAA FB</button>
       <button class="choice" data-sp="UFC"><span class="e">🥊</span>UFC</button>
-      <button class="choice" data-sp="WCUP"><span class="e">🌍</span>World Cup</button>
       <button class="choice" data-sp="SOC"><span class="e">⚽</span>Soccer</button>
     </div>
     <div class="lbl">Rounds</div>
@@ -1530,8 +1528,8 @@ function renderRoom() {
   const poses = ["All", ...new Set(posPool.map((p) => p.pos))];
   $("posFilters").innerHTML = poses.map((p) => `<button class="fchip ${posFilter === p ? "on" : ""}" data-pos="${p}">${p}</button>`).join("");
 
-  // Golf/UFC/TEN have small known fields — show all; large roster sports cap at 80
-  const FULL_FIELD = new Set(["GOLF", "UFC", "TEN", "WCUP"]);
+  // Golf/UFC/TEN/SOC have full event fields — show all; large roster sports cap at 80
+  const FULL_FIELD = new Set(["GOLF", "UFC", "TEN", "SOC"]);
   const poolCap = FULL_FIELD.has(draft.sport) ? 300 : 80;
   $("pool").innerHTML = availPlayers().slice(0, poolCap).map((p) => {
     const game = p.ev || todayMatchups[p.tm] || p.tm;
