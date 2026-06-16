@@ -733,6 +733,18 @@ async function cleanupStaleLobbies() {
       broadcast(row.code);
       console.log("Auto-closed expired public lobby:", row.code);
     }
+    // Also clean up private (friends-only) lobbies idle for 48+ hours — host abandoned them
+    const stalePrivate = await pool.query(
+      `SELECT code FROM drafts
+       WHERE (state->>'status') = 'lobby'
+       AND (state->>'public') != 'true'
+       AND updated < now() - interval '48 hours'`
+    );
+    for (const row of stalePrivate.rows) {
+      await pool.query("DELETE FROM drafts WHERE code=$1", [row.code]);
+      broadcast(row.code).catch(() => {});
+      console.log("Auto-removed stale private lobby:", row.code);
+    }
     // Also nuke active timed drafts that have been completely idle for 4+ hours
     const staleActive = await pool.query(
       `SELECT code FROM drafts
