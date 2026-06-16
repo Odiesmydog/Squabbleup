@@ -806,4 +806,27 @@ initDb().then(() => {
   }
   cleanupStaleLobbies();
   setInterval(cleanupStaleLobbies, 60 * 1000);
+
+  // Countdown safety net: if setTimeout was lost (e.g. server restart during countdown),
+  // this poller catches any lobby whose startingAt has passed and activates it.
+  setInterval(async () => {
+    try {
+      const r = await pool.query(
+        `SELECT code, state FROM drafts
+         WHERE (state->>'status') = 'lobby'
+         AND (state->>'startingAt') IS NOT NULL
+         AND (state->>'startingAt')::bigint < $1`,
+        [Date.now()]
+      );
+      for (const row of r.rows) {
+        const st = row.state;
+        delete st.startingAt;
+        st.status = "active";
+        if (st.pickTimer) st.pickStartedAt = Date.now();
+        await pool.query("UPDATE drafts SET state=$1, updated=now() WHERE code=$2", [st, row.code]);
+        broadcast(row.code).catch(() => {});
+        console.log("Countdown-activated draft:", row.code);
+      }
+    } catch (e) { console.error("countdown poll", e.message); }
+  }, 5000);
 });
