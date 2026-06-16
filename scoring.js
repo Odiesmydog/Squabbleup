@@ -177,13 +177,16 @@ async function _fetchSchedule(sport) {
       const names = new Set(); const matchups = {}; const roster = [];
       // ESPN includes the full tournament field in competitions[0].competitors
       const comps = ev0?.competitions?.[0]?.competitors || [];
-      for (const comp of comps) {
+      comps.forEach((comp, idx) => {
         const name = comp.athlete?.displayName || comp.athlete?.fullName;
         if (!name || names.has(name)) continue;
         names.add(name);
-        roster.push({ n: name, pos: "G", tm: "GOLF", sp: "GOLF", ev: golfLabel,
+        // r = competitor order from ESPN (leaderboard/world ranking order); used for sort
+        const staticP = PLAYERS.find((p) => p.n === name && p.sp === "GOLF");
+        const r = staticP?.r ?? (idx + 1) * 10;
+        roster.push({ n: name, pos: "G", tm: "GOLF", sp: "GOLF", ev: golfLabel, r,
           ...(isLive ? { livelock: true } : {}) });
-      }
+      });
       // fallback: static list when ESPN returns empty competitors
       if (names.size < 10) {
         for (const p of PLAYERS.filter((x) => x.sp === "GOLF")) {

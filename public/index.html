@@ -1429,17 +1429,21 @@ function availPlayers() {
   const taken = new Set(draft.picks.map((p) => p.player));
   // use live ESPN roster when available (full team rosters); fall back to static list
   const pool = todaysRoster.length > 0 ? todaysRoster : PLAYERS.filter((p) => draft.sport === "ALL" || p.sp === draft.sport);
-  return pool
+  const filtered = pool
     .filter((p) => !taken.has(p.n))
     .filter((p) => draft.sport === "ALL" || p.sp === draft.sport)
     .filter((p) => !todaysPlayers || todaysPlayers.has(p.n))
     .filter((p) => posFilter === "All" || p.pos === posFilter)
-    .filter((p) => p.n.toLowerCase().includes(q))
-    .sort((a, b) => {
-      const aOut = (OUT_STATUS.has(playerStatus[a.n]?.status) || a.livelock) ? 1 : 0;
-      const bOut = (OUT_STATUS.has(playerStatus[b.n]?.status) || b.livelock) ? 1 : 0;
-      return aOut !== bOut ? aOut - bOut : (RANK_MAP.get(a.n) || 999) - (RANK_MAP.get(b.n) || 999);
-    });
+    .filter((p) => p.n.toLowerCase().includes(q));
+  return filtered.sort((a, b) => {
+    const aOut = (OUT_STATUS.has(playerStatus[a.n]?.status) || a.livelock) ? 1 : 0;
+    const bOut = (OUT_STATUS.has(playerStatus[b.n]?.status) || b.livelock) ? 1 : 0;
+    if (aOut !== bOut) return aOut - bOut;
+    // prefer projection-based rank, then static rank; unranked ESPN-only players use pool order (r undefined)
+    const aRank = RANK_MAP.get(a.n) ?? (a.r ?? 9999);
+    const bRank = RANK_MAP.get(b.n) ?? (b.r ?? 9999);
+    return aRank - bRank;
+  });
 }
 function renderRoom() {
   if (!$("scrRoom").classList.contains("on")) {
@@ -1502,7 +1506,10 @@ function renderRoom() {
   const poses = ["All", ...new Set(posPool.map((p) => p.pos))];
   $("posFilters").innerHTML = poses.map((p) => `<button class="fchip ${posFilter === p ? "on" : ""}" data-pos="${p}">${p}</button>`).join("");
 
-  $("pool").innerHTML = availPlayers().slice(0, 50).map((p) => {
+  // Golf/UFC/TEN have small known fields — show all; large roster sports cap at 80
+  const FULL_FIELD = new Set(["GOLF", "UFC", "TEN", "WCUP"]);
+  const poolCap = FULL_FIELD.has(draft.sport) ? 300 : 80;
+  $("pool").innerHTML = availPlayers().slice(0, poolCap).map((p) => {
     const game = p.ev || todayMatchups[p.tm] || p.tm;
     const proj = draftRoomProj[p.n];
     const projStr = proj ? `<span class="projTag">${proj.proj.toFixed(1)} proj${proj.source === "sleeper" ? " 🔮" : ""}</span>` : "";
