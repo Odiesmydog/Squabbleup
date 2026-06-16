@@ -230,8 +230,18 @@ function applyPick(st, p) {
 const SCORING_DAYS = { NFL: 7, CFB: 7, NBA: 1, CBB: 1, MLB: 1, NHL: 1, GOLF: 7, TEN: 2, UFC: 2, WCUP: 2, SOC: 2 };
 function finishDraft(st) {
   st.status = "done";
-  const days = SCORING_DAYS[st.sport] || 1;
-  st.scoring = { start: Date.now(), end: Date.now() + days * 864e5 };
+  if (st.sport === "GOLF") {
+    // close scoring Monday 6am UTC so it covers the full Thu–Sun tournament week
+    const now = new Date();
+    const daysUntilMon = (8 - now.getUTCDay()) % 7 || 7;
+    const endMon = new Date(now);
+    endMon.setUTCDate(now.getUTCDate() + daysUntilMon);
+    endMon.setUTCHours(6, 0, 0, 0);
+    st.scoring = { start: Date.now(), end: endMon.getTime() };
+  } else {
+    const days = SCORING_DAYS[st.sport] || 1;
+    st.scoring = { start: Date.now(), end: Date.now() + days * 864e5 };
+  }
 }
 
 // ---------------- api ----------------

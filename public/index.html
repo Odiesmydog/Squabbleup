@@ -56,6 +56,7 @@ input { font-family: inherit; }
 h1.title { font-family: var(--display); font-weight: 700; font-size: 27px; margin: 4px 0 4px; }
 p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
 .stepLbl { font-family: var(--display); font-size: 13px; color: var(--gold); font-weight: 600; letter-spacing: 1px; text-transform: uppercase; margin: 16px 0 8px; }
+.archToggle { width: 100%; text-align: left; background: var(--raised); color: var(--dim); border-radius: var(--r); padding: 10px 14px; font-family: var(--display); font-size: 12px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; display: flex; justify-content: space-between; margin: 16px 0 0; }
 
 .dCard { background: var(--panel); border-radius: var(--r); margin-bottom: 10px; display: flex; align-items: stretch; box-shadow: 0 4px 0 #232120; overflow: hidden; }
 .dCardClick { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; padding: 13px 15px; cursor: pointer; }
@@ -313,13 +314,13 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
     <p class="sub">Your finished squabbles. Tap to view · ✕ to archive.</p>
     <div id="resultsList"></div>
     <div id="archiveSection" style="display:none">
-      <div class="stepLbl">Archive</div>
-      <div id="archiveList"></div>
+      <button class="archToggle" id="archToggle">Archive <span id="archArrow">▶</span></button>
+      <div id="archiveList" style="display:none"></div>
     </div>
     <div class="stepLbl" style="margin-top:20px">How scoring works</div>
     <div class="bCol" style="cursor:default">
       <div class="bPick"><span class="rd">1</span><span>Finish a draft — that locks your roster.</span></div>
-      <div class="bPick"><span class="rd">2</span><span>A scoring window opens — 1 day for NBA/MLB/NHL/UFC/Soccer/World Cup, 4 days for Golf, 7 days for NFL. Your players earn fantasy points from their real games.</span></div>
+      <div class="bPick"><span class="rd">2</span><span>A scoring window opens — 1 day for NBA/MLB/NHL/UFC/Soccer/World Cup, through end of tournament week for Golf (Thu–Sun), 7 days for NFL. Your players earn fantasy points from their real games.</span></div>
       <div class="bPick"><span class="rd">3</span><span>Stats come from live box scores, refreshed every few minutes — identical for everyone in the draft.</span></div>
       <div class="bPick"><span class="rd">4</span><span>Highest total when the window closes wins the squabble. 👑</span></div>
     </div>
@@ -760,7 +761,7 @@ function renderTop() {
 }
 
 // ================= tabs + home data =================
-let homeData = null, curTab = "home";
+let homeData = null, curTab = "home", _archOpen = false;
 const TABSCR = { home: "scrHome", drafts: "scrDrafts", live: "scrLive", results: "scrResults", profile: "scrProfile" };
 async function gotoTab(t) {
   curTab = t;
@@ -973,6 +974,11 @@ function renderTabs() {
   const archSec = $("archiveSection");
   if (archived.length) {
     $("archiveList").innerHTML = archived.map((d) => dCardHtml(d, { reopen: true })).join("");
+    $("archToggle").textContent = "";
+    $("archToggle").append(Object.assign(document.createTextNode(`Archive (${archived.length})`), {}));
+    const arrow = document.createElement("span"); arrow.id = "archArrow"; arrow.textContent = _archOpen ? "▼" : "▶";
+    $("archToggle").appendChild(arrow);
+    $("archiveList").style.display = _archOpen ? "block" : "none";
     archSec.style.display = "block";
   } else {
     archSec.style.display = "none";
@@ -1020,6 +1026,11 @@ $("fcEditBtn").addEventListener("click", _showFcEdit);
 $("fcEditOk").addEventListener("click", _doFcRecode);
 $("fcEditCancel").addEventListener("click", _hideFcEdit);
 $("fcEditIn").addEventListener("keydown", (e) => { if (e.key === "Enter") _doFcRecode(); if (e.key === "Escape") _hideFcEdit(); });
+$("archToggle").addEventListener("click", () => {
+  _archOpen = !_archOpen;
+  $("archiveList").style.display = _archOpen ? "block" : "none";
+  const arrow = $("archArrow"); if (arrow) arrow.textContent = _archOpen ? "▼" : "▶";
+});
 document.addEventListener("click", async (e) => {
   const btn = e.target.closest("button[data-arch],button[data-unarch],button[data-leave],button[data-local-close]");
   if (btn) {
