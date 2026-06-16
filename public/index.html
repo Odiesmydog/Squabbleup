@@ -1508,7 +1508,19 @@ function renderRoom() {
         cd.style.color = rem <= 15 ? "var(--red)" : rem <= 30 ? "var(--gold)" : "var(--dim)";
         if (rem === 0) {
           clearInterval(_pickTimerT); _pickTimerT = null;
-          if (myTurn && !_autoDraft) { _autoDraft = true; fireAutoDraft(); _autoDraft = false; }
+          if (myTurn) {
+            // timer expired — pick directly without toggling _autoDraft flag
+            const _timerPool = availPlayers()
+              .filter((p) => !OUT_STATUS.has(playerStatus[p.n]?.status) && !p.livelock)
+              .sort((a, b) => (draftRoomProj[b.n]?.proj || 0) - (draftRoomProj[a.n]?.proj || 0) || (RANK_MAP.get(a.n) ?? 9999) - (RANK_MAP.get(b.n) ?? 9999));
+            const _timerPick = _timerPool[0];
+            if (_timerPick) {
+              const _pi = todaysRoster.find((x) => x.n === _timerPick.n) || PLAYERS.find((x) => x.n === _timerPick.n) || _timerPick;
+              api(`/api/draft/${draft.code}/pick`, { userId: me.id, player: _timerPick.n, pos: _pi.pos, sp: _pi.sp, tm: _pi.tm })
+                .then((st) => { draft = st; routeDraft(); })
+                .catch((e) => toast(e.message || "Auto-pick failed"));
+            }
+          }
         }
       }, 500);
     }

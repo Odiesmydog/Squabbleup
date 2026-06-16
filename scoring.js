@@ -339,13 +339,12 @@ async function _fetchSchedule(sport) {
   // Soccer (all leagues + World Cup) — parallel fetching, livelock in-progress, match labels
   if (sport === "SOC") {
     const names = new Set(); const matchups = {}; const roster = [];
-    // today + tomorrow to handle UTC date boundary
-    const days = [dstr(new Date()), dstr(new Date(Date.now() + 864e5))];
+    const today = dstr(new Date());
     const allLeagues = [...SOC_LEAGUES, "fifa.world"];
 
-    // 1. Collect all events across all leagues + both days in parallel
+    // 1. Collect all events across all leagues for today in parallel
     const rawEvents = (await Promise.all(
-      allLeagues.flatMap((lg) => days.map(async (day) => {
+      allLeagues.flatMap((lg) => [today].map(async (day) => {
         try {
           const sb = await jget(`https://site.api.espn.com/apis/site/v2/sports/soccer/${lg}/scoreboard?dates=${day}`);
           return (sb.events || []).map((ev) => ({ lg, ev }));
