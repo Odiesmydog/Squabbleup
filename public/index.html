@@ -1154,6 +1154,7 @@ function connect(code) {
   const proto = location.protocol === "https:" ? "wss" : "ws";
   try {
     ws = new WebSocket(`${proto}://${location.host}/ws?draft=${code}`);
+    ws.onclose = () => { _connected = false; };
     ws.onmessage = (e) => {
       if (!_connected) return;
       const m = JSON.parse(e.data);
@@ -1185,9 +1186,15 @@ function leaveDraft() {
   if (ws) { try { ws.close(); } catch {} ws = null; }
   if (pollT) { clearInterval(pollT); pollT = null; }
   if (_lobbyExpiry) { clearInterval(_lobbyExpiry); _lobbyExpiry = null; }
+  if (scoresT) { clearInterval(scoresT); scoresT = null; }
   clearTimeout(_autoDraftT); _autoDraftT = null; _autoDraft = false;
   clearInterval(_pickTimerT); _pickTimerT = null; _lastPickCount = -1;
   for (const k in vsSelection) delete vsSelection[k];
+  // reset per-draft state so entering a new draft gets fresh data
+  todaysPlayers = null; nextGameDay = null; todayMatchups = {}; todaysRoster = [];
+  draftRoomProj = {}; playerStatus = {};
+  scoresCache = {}; scoresDetail = {}; projCache = {};
+  posFilter = "All"; q = "";
 }
 
 function routeDraft() {
@@ -1619,7 +1626,8 @@ $("pool").addEventListener("click", async (e) => {
     e.target.disabled = true;
     if (draft.local) { localPick(name); return; }
     const pInfo = PLAYERS.find((x) => x.n === name) || todaysRoster.find((x) => x.n === name) || {};
-    try { draft = await api(`/api/draft/${draft.code}/pick`, { userId: me.id, player: name, pos: pInfo.pos, sp: pInfo.sp, tm: pInfo.tm }); routeDraft(); } catch {}
+    try { draft = await api(`/api/draft/${draft.code}/pick`, { userId: me.id, player: name, pos: pInfo.pos, sp: pInfo.sp, tm: pInfo.tm }); routeDraft(); }
+    catch (e) { toast(e?.message || "Pick failed — try again"); e.target && (e.target.disabled = false); }
     return;
   }
   // tap on row (not button) → player detail popup
@@ -1983,8 +1991,9 @@ function localBotLoop() {
   if (!draft?.local || draft.status !== "active") return;
   const t = draft.seats[lpIdx(draft)];
   if (!t.bot) return;
+  const _botDraftCode = draft.code; // guard: don't pick into a different draft if user navigated away
   setTimeout(() => {
-    if (!draft?.local || draft.status !== "active") return;
+    if (!draft?.local || draft.status !== "active" || draft.code !== _botDraftCode) return;
     const cur = draft.seats[lpIdx(draft)];
     if (!cur.bot) return;
     const taken = new Set(draft.picks.map((p) => p.player));
@@ -2150,7 +2159,7 @@ setupPush().catch(() => {});
         await Share.share({
           title: "Join my SquabbleUP draft!",
           text: `Join "${name}" — use code ${code} or tap the link.`,
-          url: `https://squabbleup.onrender.com/?join=${code}`,
+          url: `${location.origin}/?join=${code}`,
           dialogTitle: "Invite to SquabbleUP",
         });
       } catch {}

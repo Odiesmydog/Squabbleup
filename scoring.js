@@ -555,21 +555,17 @@ async function pollLeagueDay(pool, sport, dayDate) {
     return;
   }
 
-  for (const ev of sb.events || []) {
-    const state = ev.status?.type?.state;
-    if (state === "pre") continue;
+  await Promise.all((sb.events || []).map(async (ev) => {
+    if (ev.status?.type?.state === "pre") return;
     let summary;
     try { summary = await jget(`https://site.api.espn.com/apis/site/v2/sports/${s}/${l}/summary?event=${ev.id}`); }
-    catch (e) { continue; }
-    const scored = FAMILY[sport] === "soccer"
-      ? scoreSoccer(summary)
-      : scoreSummary(FAMILY[sport], summary);
-    for (const [espnName, v] of scored) {
-      // use canonical name from our pool if available, otherwise store ESPN displayName directly
+    catch { return; }
+    const scored = FAMILY[sport] === "soccer" ? scoreSoccer(summary) : scoreSummary(FAMILY[sport], summary);
+    await Promise.all([...scored].map(([espnName, v]) => {
       const poolName = matchPool(idx, espnName) || espnName;
-      await upsertScore(pool, dayDate, sport, poolName, Math.round(v.pts * 10) / 10, v.parts.join(" · "));
-    }
-  }
+      return upsertScore(pool, dayDate, sport, poolName, Math.round(v.pts * 10) / 10, v.parts.join(" · "));
+    }));
+  }));
 }
 
 async function pollGolfDay(pool, dayDate) {
@@ -656,15 +652,15 @@ async function upsertScore(pool, dayDate, sport, player, pts, line) {
   );
 }
 
-// poll today + yesterday (late finals) for every sport
+// poll today + yesterday (late finals) for every sport — all days in parallel, sports in parallel per day
 async function pollAll(pool) {
   const days = [new Date(), new Date(Date.now() - 864e5)];
-  for (const d of days) {
-    for (const sport of Object.keys(LEAGUES)) await pollLeagueDay(pool, sport, d).catch((e) => console.error(sport, e.message));
-    await pollGolfDay(pool, d).catch(() => {});
-    await pollTennisDay(pool, d).catch(() => {});
-    await pollSocDay(pool, "SOC", d).catch((e) => console.error("SOC", e.message));
-  }
+  await Promise.all(days.map((d) => Promise.all([
+    ...Object.keys(LEAGUES).map((sport) => pollLeagueDay(pool, sport, d).catch((e) => console.error(sport, e.message))),
+    pollGolfDay(pool, d).catch(() => {}),
+    pollTennisDay(pool, d).catch(() => {}),
+    pollSocDay(pool, "SOC", d).catch((e) => console.error("SOC", e.message)),
+  ])));
   console.log("scoring poll done", new Date().toISOString());
 }
 

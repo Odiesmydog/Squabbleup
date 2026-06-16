@@ -544,20 +544,33 @@ app.post("/api/draft/:code/start", ah(async (req, res) => {
   broadcast(code).catch(console.error);
   notifyDraftStart(st, code).catch(() => {}); // push: "starting in 45s"
   res.json(st);
-  // actually flip to active after countdown
-  setTimeout(async () => {
-    try {
-      const r2 = await pool.query("SELECT state FROM drafts WHERE code=$1", [code]);
-      const st2 = r2.rows[0]?.state;
-      if (!st2 || st2.status !== "lobby" || !st2.startingAt) return;
-      delete st2.startingAt;
-      st2.status = "active";
-      if (st2.pickTimer) st2.pickStartedAt = Date.now();
-      await pool.query("UPDATE drafts SET state=$1, updated=now() WHERE code=$2", [st2, code]);
-      broadcast(code).catch(console.error);
-    } catch (e) { console.error("countdown start failed", e.message); }
-  }, COUNTDOWN_MS);
+  // flip to active after countdown — atomic WHERE prevents the 5s poller from double-firing
+  setTimeout(() => activateCountdown(code), COUNTDOWN_MS);
 }));
+
+// Atomically flip a countdown lobby to active — safe to call from both setTimeout and the 5s poller.
+// The WHERE clause ensures only the first caller wins; the second is a no-op (0 rows updated).
+async function activateCountdown(code) {
+  try {
+    const r = await pool.query(
+      `UPDATE drafts
+       SET state = (state - 'startingAt') || '{"status":"active"}'::jsonb, updated = now()
+       WHERE code = $1
+         AND (state->>'status') = 'lobby'
+         AND (state->>'startingAt') IS NOT NULL
+       RETURNING state`,
+      [code]
+    );
+    if (!r.rows[0]) return; // already activated or draft gone
+    const st = r.rows[0].state;
+    if (st.pickTimer) {
+      st.pickStartedAt = Date.now();
+      await pool.query("UPDATE drafts SET state=$1, updated=now() WHERE code=$2", [st, code]);
+    }
+    broadcast(code).catch(console.error);
+    console.log("Countdown-activated draft:", code);
+  } catch (e) { console.error("activateCountdown", e.message); }
+}
 
 function shuffleSeats(st) {
   for (let i = st.seats.length - 1; i > 0; i--) {
@@ -691,7 +704,7 @@ app.get("/api/draft/:code/scores/detail", ah(async (req, res) => {
   res.json(await scoring.draftScoreDetail(pool, st));
 }));
 
-// pick (validated)
+// pick (validated, optimistic concurrency: write only if pick count unchanged)
 app.post("/api/draft/:code/pick", ah(async (req, res) => {
   const code = req.params.code.toUpperCase();
   const { userId, player, pos, sp, tm } = req.body;
@@ -702,14 +715,22 @@ app.post("/api/draft/:code/pick", ah(async (req, res) => {
   const idx = pickerIndex(st);
   if (st.seats[idx].userId !== userId) return res.status(403).json({ error: "Not your pick" });
   if (st.picks.some((p) => p.player === player)) return res.status(400).json({ error: "Already drafted" });
-  // look up in static PLAYERS first; fall back to metadata sent by client (live ESPN roster players)
   let p = PLAYERS.find((x) => x.n === player && (st.sport === "ALL" || x.sp === st.sport));
   if (!p && pos && sp && tm && (st.sport === "ALL" || sp === st.sport)) p = { n: player, pos, sp, tm };
   if (!p) return res.status(400).json({ error: "Unknown player" });
+  const prevLen = st.picks.length;
   applyPick(st, p);
-  if (isDone(st)) finishDraft(st);
-  else if (st.pickTimer) st.pickStartedAt = Date.now();
-  await pool.query("UPDATE drafts SET state=$1, updated=now() WHERE code=$2", [st, code]);
+  if (isDone(st)) {
+    finishDraft(st);
+    lastNotifiedPick.delete(code);
+    if (pendingPickNotify.has(code)) { clearTimeout(pendingPickNotify.get(code)); pendingPickNotify.delete(code); }
+  } else if (st.pickTimer) st.pickStartedAt = Date.now();
+  // optimistic update: only write if no concurrent pick snuck in
+  const upd = await pool.query(
+    "UPDATE drafts SET state=$1, updated=now() WHERE code=$2 AND jsonb_array_length(state->'picks')=$3",
+    [st, code, prevLen]
+  );
+  if (upd.rowCount === 0) return res.status(409).json({ error: "Pick conflict — please try again" });
   broadcast(code);
   res.json(st);
 }));
@@ -829,24 +850,17 @@ initDb().then(() => {
 
   // Countdown safety net: if setTimeout was lost (e.g. server restart during countdown),
   // this poller catches any lobby whose startingAt has passed and activates it.
+  // Safety net: activateCountdown is idempotent so calling it twice is harmless
   setInterval(async () => {
     try {
       const r = await pool.query(
-        `SELECT code, state FROM drafts
+        `SELECT code FROM drafts
          WHERE (state->>'status') = 'lobby'
          AND (state->>'startingAt') IS NOT NULL
          AND (state->>'startingAt')::bigint < $1`,
         [Date.now()]
       );
-      for (const row of r.rows) {
-        const st = row.state;
-        delete st.startingAt;
-        st.status = "active";
-        if (st.pickTimer) st.pickStartedAt = Date.now();
-        await pool.query("UPDATE drafts SET state=$1, updated=now() WHERE code=$2", [st, row.code]);
-        broadcast(row.code).catch(() => {});
-        console.log("Countdown-activated draft:", row.code);
-      }
+      await Promise.all(r.rows.map((row) => activateCountdown(row.code)));
     } catch (e) { console.error("countdown poll", e.message); }
   }, 5000);
 });
