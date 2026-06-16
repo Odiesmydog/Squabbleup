@@ -227,7 +227,7 @@ function applyPick(st, p) {
   st.picks.push({ seat: idx, player: p.n, pos: p.pos, sp: p.sp, tm: p.tm });
   st.seats[idx].roster.push({ n: p.n, pos: p.pos, sp: p.sp, tm: p.tm });
 }
-const SCORING_DAYS = { NFL: 7, CFB: 7, NBA: 1, CBB: 1, MLB: 1, NHL: 1, GOLF: 4, TEN: 1, UFC: 2, WCUP: 2, SOC: 2 };
+const SCORING_DAYS = { NFL: 7, CFB: 7, NBA: 1, CBB: 1, MLB: 1, NHL: 1, GOLF: 7, TEN: 2, UFC: 2, WCUP: 2, SOC: 2 };
 function finishDraft(st) {
   st.status = "done";
   const days = SCORING_DAYS[st.sport] || 1;
