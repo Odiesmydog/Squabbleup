@@ -1489,31 +1489,23 @@ function renderRoom() {
 
   if (isCountdown) {
     $("turnBanner").className = "turnBanner waiting";
-    const cd = $("pickCountdown");
-    cd.style.display = "block";
-    if (!_pickTimerT) {
-      _pickTimerT = setInterval(() => {
-        if (!draft?.startingAt) { clearInterval(_pickTimerT); _pickTimerT = null; cd.style.display = "none"; return; }
-        const rem = Math.max(0, Math.ceil((draft.startingAt - Date.now()) / 1000));
-        const m = Math.floor(rem / 60), s = rem % 60;
-        $("turnBanner").textContent = `Draft starting in ${m}:${String(s).padStart(2, "0")} — browse the pool!`;
-        cd.style.display = "none";
-      }, 500);
-    }
-    $("turnBanner").textContent = (() => {
+    const _tickBanner = () => {
+      if (!draft?.startingAt) return;
       const rem = Math.max(0, Math.ceil((draft.startingAt - Date.now()) / 1000));
       const m = Math.floor(rem / 60), s = rem % 60;
-      return `Draft starting in ${m}:${String(s).padStart(2, "0")} — browse the pool!`;
-    })();
+      $("turnBanner").textContent = `Starting in ${m}:${String(s).padStart(2, "0")}`;
+    };
+    _tickBanner();
+    if (!_pickTimerT) _pickTimerT = setInterval(_tickBanner, 500);
   } else {
-    if (_pickTimerT && draft.status === "active") { clearInterval(_pickTimerT); _pickTimerT = null; }
+    if (_pickTimerT) { clearInterval(_pickTimerT); _pickTimerT = null; }
     $("turnBanner").className = "turnBanner" + (myTurn ? "" : " waiting");
     $("turnBanner").textContent = draft.local
       ? (t.bot ? `${t.name} is thinking…` : `📱 Pass the phone — ${t.name} picks!`)
       : (myTurn ? "Your pick! 🔥" : t.bot ? `${t.name} is thinking…` : `${t.name} is on the clock…`);
   }
 
-  // pick countdown timer (only relevant when draft is active, not countdown phase)
+  // per-pick countdown timer (active drafts with pickTimer only)
   const cd = $("pickCountdown");
   if (!isCountdown && draft.pickTimer && draft.pickStartedAt && !draft.local) {
     cd.style.display = "block";
@@ -1546,9 +1538,8 @@ function renderRoom() {
         }
       }, 500);
     }
-  } else {
+  } else if (!isCountdown) {
     cd.style.display = "none";
-    clearInterval(_pickTimerT); _pickTimerT = null;
   }
 
   const note = $("noGamesNote");
