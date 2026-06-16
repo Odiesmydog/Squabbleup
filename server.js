@@ -112,6 +112,7 @@ wss.on("connection", (ws, req) => {
 });
 
 const lastNotifiedPick = new Map(); // code -> pick count when last notified
+const pendingPickNotify = new Map(); // code -> setTimeout handle (cancel if next pick arrives fast)
 
 async function broadcast(code) {
   const r = await pool.query("SELECT state FROM drafts WHERE code=$1", [code]);
@@ -122,14 +123,21 @@ async function broadcast(code) {
     if (ws.readyState === 1) ws.send(msg);
   }
   scheduleBot(code, st);
-  // push notification only when the picker changes (pick count increases)
+  // push notification when the picker changes — delayed 3s so the UI updates first
+  // and the SW can suppress if the user's app is already focused
   if (st.status === "active" && !isDone(st)) {
     const seat = st.seats[pickerIndex(st)];
     if (seat?.userId && !seat.bot) {
       const lastLen = lastNotifiedPick.get(code) ?? -1;
       if (st.picks.length !== lastLen) {
         lastNotifiedPick.set(code, st.picks.length);
-        notifyPick(seat.userId, st.name, code).catch(() => {});
+        // cancel any pending notification for the previous turn (picked before 3s elapsed)
+        if (pendingPickNotify.has(code)) clearTimeout(pendingPickNotify.get(code));
+        const t = setTimeout(() => {
+          pendingPickNotify.delete(code);
+          notifyPick(seat.userId, st.name, code).catch(() => {});
+        }, 3000);
+        pendingPickNotify.set(code, t);
       }
     }
   }
