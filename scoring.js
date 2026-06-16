@@ -235,18 +235,17 @@ async function _fetchSchedule(sport) {
   }
   // Tennis: pull actual match competitors from ESPN groupings (matches live under
   // ev.groupings[].competitions[], NOT ev.competitions[] which is always empty for tennis)
-  // Check today + tomorrow so Monday rest days still show next day's draws.
+  // Only fetch today; fall back to tomorrow only when today has zero pre/in matches (rest day).
   if (sport === "TEN") {
     const names = new Set(); const matchups = {}; const roster = [];
-    const days = [dstr(new Date()), dstr(new Date(Date.now() + 864e5))];
-    for (const tour of ["atp", "wta"]) {
-      const pos = tour === "atp" ? "ATP" : "WTA";
-      for (const day of days) {
+    async function fetchTennisDay(day) {
+      let found = 0;
+      for (const tour of ["atp", "wta"]) {
+        const pos = tour === "atp" ? "ATP" : "WTA";
         try {
           const sb = await jget(`https://site.api.espn.com/apis/site/v2/sports/tennis/${tour}/scoreboard?dates=${day}`);
           for (const ev of sb.events || []) {
             const tournName = ev.shortName || ev.name || `${tour.toUpperCase()} Tennis`;
-            // flatten all matches from groupings (primary) and direct competitions (fallback)
             const allMatches = [];
             for (const g of ev.groupings || []) for (const m of g.competitions || []) allMatches.push(m);
             for (const m of ev.competitions || []) allMatches.push(m);
@@ -257,8 +256,10 @@ async function _fetchSchedule(sport) {
               if (cs.length < 2) continue;
               const nameA = cs[0].athlete?.displayName;
               const nameB = cs[1].athlete?.displayName;
-              if (!nameA || !nameB) continue;
+              // skip if either player is unknown/TBD (draw not yet set)
+              if (!nameA || !nameB || nameA === "TBD" || nameB === "TBD") continue;
               const livelock = state === "in";
+              found++;
               if (!names.has(nameA)) {
                 names.add(nameA);
                 roster.push({ n: nameA, pos, tm: "TEN", sp: "TEN",
@@ -275,7 +276,11 @@ async function _fetchSchedule(sport) {
           }
         } catch {}
       }
+      return found;
     }
+    const todayFound = await fetchTennisDay(dstr(new Date()));
+    // only look at tomorrow if today is a complete rest day (no pre or in matches at all)
+    if (todayFound === 0) await fetchTennisDay(dstr(new Date(Date.now() + 864e5)));
     return { players: names.size > 0 ? names : null, matchups, roster };
   }
   // World Cup — parallel team roster fetches; livelock in-progress matches; skip completed
