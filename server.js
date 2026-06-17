@@ -774,6 +774,7 @@ const SCORE_POLL_MIN = +(process.env.SCORE_POLL_MIN || 5);
 // Uses createdAt from state when present, falls back to DB updated column.
 async function cleanupStaleLobbies() {
   try {
+    // Public lobbies: close after 1 hour with no start
     const r = await pool.query(
       `SELECT code FROM drafts
        WHERE (state->>'status') = 'lobby'
@@ -781,21 +782,22 @@ async function cleanupStaleLobbies() {
        AND (state->>'startingAt') IS NULL
        AND (
          ((state->>'createdAt') IS NOT NULL AND (state->>'createdAt')::bigint < $1)
-         OR ((state->>'createdAt') IS NULL AND updated < now() - interval '20 minutes')
+         OR ((state->>'createdAt') IS NULL AND updated < now() - interval '1 hour')
        )`,
-      [Date.now() - 20 * 60 * 1000]
+      [Date.now() - 60 * 60 * 1000]
     );
     for (const row of r.rows) {
       await pool.query("DELETE FROM drafts WHERE code=$1", [row.code]);
       broadcast(row.code);
       console.log("Auto-closed expired public lobby:", row.code);
     }
-    // Also clean up private (friends-only) lobbies idle for 48+ hours — host abandoned them
+    // Private (friends-only) lobbies: close after 12 hours with no start
     const stalePrivate = await pool.query(
       `SELECT code FROM drafts
        WHERE (state->>'status') = 'lobby'
        AND (state->>'public') != 'true'
-       AND updated < now() - interval '48 hours'`
+       AND (state->>'startingAt') IS NULL
+       AND updated < now() - interval '12 hours'`
     );
     for (const row of stalePrivate.rows) {
       await pool.query("DELETE FROM drafts WHERE code=$1", [row.code]);
@@ -850,19 +852,67 @@ initDb().then(() => {
   cleanupStaleLobbies();
   setInterval(cleanupStaleLobbies, 60 * 1000);
 
-  // Countdown safety net: if setTimeout was lost (e.g. server restart during countdown),
-  // this poller catches any lobby whose startingAt has passed and activates it.
-  // Safety net: activateCountdown is idempotent so calling it twice is harmless
+  // Server-side auto-draft: when a pick timer expires and the client hasn't acted
+  // (offline player, dropped connection, etc.), the server auto-picks for them.
+  async function serverAutoDraft(code, st) {
+    try {
+      if (st.status !== "active" || isDone(st)) return;
+      if (!st.pickTimer || !st.pickStartedAt) return;
+      if (st.pickStartedAt + st.pickTimer * 1000 > Date.now()) return;
+      const seat = st.seats[pickerIndex(st)];
+      if (seat.bot) return; // bots have their own scheduler
+      const taken = new Set(st.picks.map((p) => p.player));
+      const { players: todayNames, roster: todayRoster } = await scoring.todaysSchedule(st.sport).catch(() => ({ players: null, roster: [] }));
+      const playerPool = todayRoster.length > 0 ? todayRoster : PLAYERS.filter((p) => st.sport === "ALL" || p.sp === st.sport);
+      const rankMap = new Map(PLAYERS.map((p) => [p.n, p.r]));
+      const avail = playerPool
+        .filter((p) => !taken.has(p.n))
+        .filter((p) => st.sport === "ALL" || p.sp === st.sport)
+        .filter((p) => !todayNames || todayNames.has(p.n))
+        .filter((p) => !p.livelock)
+        .sort((a, b) => (rankMap.get(a.n) || 999) - (rankMap.get(b.n) || 999));
+      const pick = avail[0];
+      if (!pick) return;
+      const prevLen = st.picks.length;
+      applyPick(st, pick);
+      if (isDone(st)) {
+        finishDraft(st);
+        lastNotifiedPick.delete(code);
+        if (pendingPickNotify.has(code)) { clearTimeout(pendingPickNotify.get(code)); pendingPickNotify.delete(code); }
+      } else if (st.pickTimer) st.pickStartedAt = Date.now();
+      const upd = await pool.query(
+        "UPDATE drafts SET state=$1, updated=now() WHERE code=$2 AND jsonb_array_length(state->'picks')=$3",
+        [st, code, prevLen]
+      );
+      if (upd.rowCount === 0) return; // another process beat us
+      broadcast(code).catch(console.error);
+      console.log(`Server auto-drafted ${pick.n} for ${seat.name} in ${code}`);
+    } catch (e) { console.error("serverAutoDraft", e.message); }
+  }
+
+  // Countdown safety net + server-side auto-draft poller (runs every 5s)
   setInterval(async () => {
     try {
-      const r = await pool.query(
+      // 1. Activate any countdown lobbies whose timer has elapsed
+      const cd = await pool.query(
         `SELECT code FROM drafts
          WHERE (state->>'status') = 'lobby'
          AND (state->>'startingAt') IS NOT NULL
          AND (state->>'startingAt')::bigint < $1`,
         [Date.now()]
       );
-      await Promise.all(r.rows.map((row) => activateCountdown(row.code)));
-    } catch (e) { console.error("countdown poll", e.message); }
+      await Promise.all(cd.rows.map((row) => activateCountdown(row.code)));
+
+      // 2. Auto-draft for active drafts where the pick timer has expired
+      const expired = await pool.query(
+        `SELECT code, state FROM drafts
+         WHERE (state->>'status') = 'active'
+         AND (state->>'pickTimer') IS NOT NULL
+         AND (state->>'pickStartedAt') IS NOT NULL
+         AND (state->>'pickStartedAt')::bigint + (state->>'pickTimer')::int * 1000 < $1`,
+        [Date.now()]
+      );
+      await Promise.all(expired.rows.map((row) => serverAutoDraft(row.code, row.state)));
+    } catch (e) { console.error("poller", e.message); }
   }, 5000);
 });
