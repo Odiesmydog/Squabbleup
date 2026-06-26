@@ -1402,9 +1402,10 @@ $("lobbyShuffle").addEventListener("click", async () => {
     `<div class="slotRow"><span class="slotPos">${i + 1}</span><span class="slotName" id="sn${i}">${n}</span></div>`
   ).join("");
 
-  const serverCall = api(`/api/draft/${draft.code}/shuffle`, { hostId: me.id }).catch(() => {});
+  const serverCall = api(`/api/draft/${draft.code}/shuffle`, { hostId: me.id }).catch(() => null);
   await _runSlotAnim(names);
-  await serverCall;
+  const shuffled = await serverCall;
+  if (shuffled?.seats) draft = shuffled;
 
   _shuffling = false;
   btn.disabled = false;
