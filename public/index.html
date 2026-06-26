@@ -1141,7 +1141,7 @@ $("createDraft").addEventListener("click", async (e) => {
 
 // ================= draft connection =================
 let draft = null, ws = null, pollT = null, posFilter = "All", q = "", activeTab = "pick", unreadChat = false, lastChatLen = 0, _shuffling = false;
-let _connected = false, _lobbyExpiry = null, _autoDraft = false, _autoDraftT = null, _pickTimerT = null, _lobbyTimerT = null, _lastPickCount = -1, _wsReconnectT = null;
+let _connected = false, _lobbyExpiry = null, _autoDraft = false, _autoDraftT = null, _pickTimerT = null, _lobbyTimerT = null, _lastPickCount = -1, _wsReconnectT = null, _rosterRefreshT = null;
 let todaysPlayers = null, nextGameDay = null, todayMatchups = {}, draftRoomProj = {}, playerStatus = {}, todaysRoster = [];
 // Precomputed rank map — built once from static PLAYERS list
 const RANK_MAP = new Map(PLAYERS.map((p) => [p.n, p.r]));
@@ -1221,6 +1221,7 @@ function leaveDraft() {
   clearTimeout(_autoDraftT); _autoDraftT = null; _autoDraft = false;
   clearInterval(_pickTimerT); _pickTimerT = null; _lastPickCount = -1;
   clearInterval(_lobbyTimerT); _lobbyTimerT = null;
+  clearInterval(_rosterRefreshT); _rosterRefreshT = null;
   for (const k in vsSelection) delete vsSelection[k];
   // reset per-draft state so entering a new draft gets fresh data
   todaysPlayers = null; nextGameDay = null; todayMatchups = {}; todaysRoster = [];
@@ -1511,6 +1512,13 @@ function renderRoom() {
     show("scrRoom"); setTab("pick");
     todaysPlayers = null; nextGameDay = null; todayMatchups = {}; todaysRoster = []; draftRoomProj = {}; playerStatus = {};
     fetchTodaysTeams(draft.sport).then(() => renderRoom());
+    // refresh roster + projections every 2 minutes so probable pitchers and injury status stay current
+    clearInterval(_rosterRefreshT);
+    _rosterRefreshT = setInterval(() => {
+      fetchTodaysTeams(draft.sport).then(() => {
+        if ($("scrRoom").classList.contains("on")) renderRoom();
+      });
+    }, 2 * 60 * 1000);
   }
   const isCountdown = draft.status === "lobby" && !!draft.startingAt;
   // only friends-only host can cancel an active room
