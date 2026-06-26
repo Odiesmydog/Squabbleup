@@ -109,6 +109,18 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
 .turnBanner { font-family: var(--display); font-weight: 700; font-size: 20px; text-align: center; background: var(--gold); color: #3A2C08; border-radius: var(--r); padding: 11px; margin-bottom: 10px; box-shadow: 0 5px 0 var(--gold-d); }
 .turnBanner.waiting { background: var(--raised); color: var(--dim); box-shadow: 0 5px 0 #2e2b28; }
 
+/* ── round-start banner ── */
+#roundBanner { display:none; position:fixed; inset:0; z-index:500; background:rgba(30,24,18,.85); align-items:center; justify-content:center; padding:20px; }
+#roundBanner.on { display:flex; }
+.rndCard { background:var(--panel); border:2px solid var(--gold); border-radius:20px; padding:28px 22px 22px; text-align:center; width:100%; max-width:360px; box-shadow:0 20px 60px rgba(0,0,0,.6); }
+.rndHeadline { font-family:var(--display); font-size:28px; font-weight:700; color:var(--gold); line-height:1.1; margin-bottom:8px; }
+.rndWho { font-size:16px; font-weight:800; color:var(--text); margin-bottom:6px; }
+.rndDetail { font-size:14px; color:var(--dim); line-height:1.6; margin-bottom:16px; }
+.rndDetail strong { color:var(--text); }
+.rndBar { height:5px; background:var(--raised); border-radius:3px; overflow:hidden; margin-bottom:16px; }
+.rndBarFill { height:100%; background:var(--gold); border-radius:3px; width:100%; }
+.rndBarFill.drain { transition:width 5s linear; width:0%; }
+
 .tabs { display: flex; gap: 7px; margin-bottom: 10px; }
 .tab { flex: 1; font-family: var(--display); font-weight: 600; font-size: 14px; background: var(--panel); color: var(--dim); border-radius: 11px; padding: 10px 0; box-shadow: 0 3px 0 #232120; text-align: center; }
 .tab.on { background: var(--green); color: var(--ink); box-shadow: 0 3px 0 var(--green-d); }
@@ -1141,7 +1153,7 @@ $("createDraft").addEventListener("click", async (e) => {
 
 // ================= draft connection =================
 let draft = null, ws = null, pollT = null, posFilter = "All", q = "", activeTab = "pick", unreadChat = false, lastChatLen = 0, _shuffling = false;
-let _connected = false, _lobbyExpiry = null, _autoDraft = false, _autoDraftT = null, _pickTimerT = null, _lobbyTimerT = null, _lastPickCount = -1, _wsReconnectT = null, _rosterRefreshT = null;
+let _connected = false, _lobbyExpiry = null, _autoDraft = false, _autoDraftT = null, _pickTimerT = null, _lobbyTimerT = null, _lastPickCount = -1, _wsReconnectT = null, _rosterRefreshT = null, _lastRound = 0, _rndBannerT = null;
 let todaysPlayers = null, nextGameDay = null, todayMatchups = {}, draftRoomProj = {}, playerStatus = {}, todaysRoster = [];
 // Precomputed rank map — built once from static PLAYERS list
 const RANK_MAP = new Map(PLAYERS.map((p) => [p.n, p.r]));
@@ -1222,6 +1234,8 @@ function leaveDraft() {
   clearInterval(_pickTimerT); _pickTimerT = null; _lastPickCount = -1;
   clearInterval(_lobbyTimerT); _lobbyTimerT = null;
   clearInterval(_rosterRefreshT); _rosterRefreshT = null;
+  clearTimeout(_rndBannerT); _rndBannerT = null; _lastRound = 0;
+  $("roundBanner").classList.remove("on");
   for (const k in vsSelection) delete vsSelection[k];
   // reset per-draft state so entering a new draft gets fresh data
   todaysPlayers = null; nextGameDay = null; todayMatchups = {}; todaysRoster = [];
@@ -1531,7 +1545,16 @@ function renderRoom() {
 
   $("railRow").innerHTML = draft.seats.map((s, i) =>
     `<div class="railSeat ${!isCountdown && i === turnIdx ? "now" : ""}">${avHtml(s)}<span class="rn">${esc(s.name)}</span></div>`).join("");
-  $("railLbl").textContent = isCountdown ? `Draft order · Round 1 of ${draft.rounds}` : `Round ${round} of ${draft.rounds} · ${reversed ? "← snaking back" : "picking this way →"}`;
+  if (isCountdown) {
+    $("railLbl").textContent = `Draft order · Round 1 of ${draft.rounds}`;
+  } else {
+    const _myIdx2 = draft.local ? -1 : draft.seats.findIndex(s => s.userId === me.id);
+    const _myPos2 = _myIdx2 < 0 ? -1 : (reversed ? draft.seats.length - _myIdx2 : _myIdx2 + 1);
+    const _curPos2 = reversed ? draft.seats.length - turnIdx : turnIdx + 1;
+    const _picksLeft = _myIdx2 < 0 ? -1 : Math.max(0, _myPos2 - _curPos2);
+    const _waitStr = _picksLeft <= 0 ? "your pick!" : `${_picksLeft} pick${_picksLeft === 1 ? "" : "s"} until you`;
+    $("railLbl").textContent = `Round ${round} of ${draft.rounds} · ${draft.local ? (reversed ? "← reversed" : "→ forward") : _waitStr}`;
+  }
   $("snakeIcon").classList.toggle("flip", !isCountdown && reversed);
 
   if (isCountdown) {
@@ -1550,6 +1573,44 @@ function renderRoom() {
     $("turnBanner").textContent = draft.local
       ? (t.bot ? `${t.name} is thinking…` : `📱 Pass the phone — ${t.name} picks!`)
       : (myTurn ? "Your pick! 🔥" : t.bot ? `${t.name} is thinking…` : `${t.name} is on the clock…`);
+  }
+
+  // round-start banner — show whenever the round number changes
+  if (!isCountdown && draft.status === "active" && round !== _lastRound) {
+    _lastRound = round;
+    const n = draft.seats.length;
+    const myIdx = draft.local ? -1 : draft.seats.findIndex(s => s.userId === me.id);
+    const firstPickerIdx = reversed ? n - 1 : 0;
+    const firstPicker = draft.seats[firstPickerIdx];
+    const ordinal = (x) => x + (x === 1 ? "st" : x === 2 ? "nd" : x === 3 ? "rd" : "th");
+    const myPosition = myIdx < 0 ? -1 : (reversed ? n - myIdx : myIdx + 1);
+    const myTurnFirst = myIdx === firstPickerIdx;
+
+    $("rndHeadline").textContent = round === 1 ? "🏁 Draft is starting!" : `🔄 Round ${round} of ${draft.rounds}`;
+    $("rndWho").textContent = round === 1
+      ? `${draft.rounds} rounds · ${n} players · Snake draft`
+      : `Order reversed! ${firstPicker.name} picks first.`;
+
+    if (round === 1) {
+      $("rndDetail").innerHTML =
+        `Pick <strong>1 player per round</strong>. After every round the order <strong>flips</strong> — last picker goes first next round.<br><br>` +
+        (myIdx < 0 ? "" : myTurnFirst ? `<strong>You pick first this round! 🔥</strong>` : `You pick <strong>${ordinal(myPosition)}</strong> this round.`);
+    } else {
+      $("rndDetail").innerHTML =
+        (myIdx < 0 ? "" : myTurnFirst
+          ? `<strong>You pick first this round! 🔥</strong>`
+          : `You pick <strong>${ordinal(myPosition)}</strong> — ${myPosition - 1} pick${myPosition - 1 === 1 ? "" : "s"} to wait.`);
+    }
+
+    const banner = $("roundBanner");
+    banner.classList.add("on");
+    const fill = $("rndBarFill");
+    fill.classList.remove("drain");
+    void fill.offsetWidth; // force reflow so transition restarts
+    fill.classList.add("drain");
+    clearTimeout(_rndBannerT);
+    _rndBannerT = setTimeout(() => banner.classList.remove("on"), 5000);
+    $("rndOkBtn").onclick = () => { clearTimeout(_rndBannerT); banner.classList.remove("on"); };
   }
 
   // per-pick countdown timer (active drafts with pickTimer only)
@@ -2251,6 +2312,17 @@ if (window.visualViewport) {
   });
 }
 </script>
+
+<!-- round-start banner -->
+<div id="roundBanner">
+  <div class="rndCard">
+    <div class="rndHeadline" id="rndHeadline"></div>
+    <div class="rndWho" id="rndWho"></div>
+    <div class="rndDetail" id="rndDetail"></div>
+    <div class="rndBar"><div class="rndBarFill" id="rndBarFill"></div></div>
+    <button class="big gold" id="rndOkBtn" style="font-size:16px;padding:13px">Got it — let's go! →</button>
+  </div>
+</div>
 
 <!-- install banner injected by JS -->
 </body>
