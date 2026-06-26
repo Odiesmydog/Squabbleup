@@ -1576,8 +1576,8 @@ function renderRoom() {
       : (myTurn ? "Your pick! 🔥" : t.bot ? `${t.name} is thinking…` : `${t.name} is on the clock…`);
   }
 
-  // round-start banner — show whenever the round number changes
-  if (!isCountdown && draft.status === "active" && round !== _lastRound) {
+  // round-start banner — show once at the start of the draft only
+  if (!isCountdown && draft.status === "active" && round === 1 && _lastRound === 0) {
     _lastRound = round;
     const n = draft.seats.length;
     const myIdx = draft.local ? -1 : draft.seats.findIndex(s => s.userId === me.id);
