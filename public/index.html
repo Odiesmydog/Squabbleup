@@ -1141,7 +1141,7 @@ $("createDraft").addEventListener("click", async (e) => {
 
 // ================= draft connection =================
 let draft = null, ws = null, pollT = null, posFilter = "All", q = "", activeTab = "pick", unreadChat = false, lastChatLen = 0, _shuffling = false;
-let _connected = false, _lobbyExpiry = null, _autoDraft = false, _autoDraftT = null, _pickTimerT = null, _lastPickCount = -1;
+let _connected = false, _lobbyExpiry = null, _autoDraft = false, _autoDraftT = null, _pickTimerT = null, _lobbyTimerT = null, _lastPickCount = -1, _wsReconnectT = null;
 let todaysPlayers = null, nextGameDay = null, todayMatchups = {}, draftRoomProj = {}, playerStatus = {}, todaysRoster = [];
 // Precomputed rank map — built once from static PLAYERS list
 const RANK_MAP = new Map(PLAYERS.map((p) => [p.n, p.r]));
@@ -1173,29 +1173,38 @@ function connect(code) {
   leaveDraft();
   _connected = true;
   const proto = location.protocol === "https:" ? "wss" : "ws";
-  try {
-    ws = new WebSocket(`${proto}://${location.host}/ws?draft=${code}`);
-    ws.onclose = () => { _connected = false; };
-    ws.onmessage = (e) => {
-      if (!_connected) return;
-      const m = JSON.parse(e.data);
-      if (m.type === "state") {
-        const prevSeats = draft?.seats?.length || 0;
-        draft = m.state;
-        // auto-start when room hits capacity (host client triggers it)
-        if (draft.hostId === me.id && draft.status === "lobby" && draft.seats.length >= 8 && prevSeats < 8) {
-          const hsOk = !draft.handshake || (draft.handshake.agreed || []).length >= draft.seats.filter((s) => !s.bot).length;
-          if (hsOk) {
-            toast("Room is full — auto-starting!");
-            api(`/api/draft/${draft.code}/start`, { hostId: me.id }).catch(() => {});
-          } else {
-            toast("Room is full! Waiting for everyone to shake on it…");
+  function _openWS() {
+    if (!_connected) return;
+    clearTimeout(_wsReconnectT); _wsReconnectT = null;
+    try {
+      ws = new WebSocket(`${proto}://${location.host}/ws?draft=${code}`);
+      ws.onclose = () => {
+        ws = null;
+        if (!_connected) return;
+        _wsReconnectT = setTimeout(_openWS, 3000);
+      };
+      ws.onmessage = (e) => {
+        if (!_connected) return;
+        const m = JSON.parse(e.data);
+        if (m.type === "state") {
+          const prevSeats = draft?.seats?.length || 0;
+          draft = m.state;
+          // auto-start when room hits capacity (host client triggers it)
+          if (draft.hostId === me.id && draft.status === "lobby" && draft.seats.length >= 8 && prevSeats < 8) {
+            const hsOk = !draft.handshake || (draft.handshake.agreed || []).length >= draft.seats.filter((s) => !s.bot).length;
+            if (hsOk) {
+              toast("Room is full — auto-starting!");
+              api(`/api/draft/${draft.code}/start`, { hostId: me.id }).catch(() => {});
+            } else {
+              toast("Room is full! Waiting for everyone to shake on it…");
+            }
           }
+          routeDraft();
         }
-        routeDraft();
-      }
-    };
-  } catch {}
+      };
+    } catch {}
+  }
+  _openWS();
   pollT = setInterval(async () => {
     if (!_connected) return;
     if (ws && ws.readyState === 1) return;
@@ -1204,12 +1213,14 @@ function connect(code) {
 }
 function leaveDraft() {
   _connected = false;
+  clearTimeout(_wsReconnectT); _wsReconnectT = null;
   if (ws) { try { ws.onclose = null; ws.close(); } catch {} ws = null; }
   if (pollT) { clearInterval(pollT); pollT = null; }
   if (_lobbyExpiry) { clearInterval(_lobbyExpiry); _lobbyExpiry = null; }
   if (scoresT) { clearInterval(scoresT); scoresT = null; }
   clearTimeout(_autoDraftT); _autoDraftT = null; _autoDraft = false;
   clearInterval(_pickTimerT); _pickTimerT = null; _lastPickCount = -1;
+  clearInterval(_lobbyTimerT); _lobbyTimerT = null;
   for (const k in vsSelection) delete vsSelection[k];
   // reset per-draft state so entering a new draft gets fresh data
   todaysPlayers = null; nextGameDay = null; todayMatchups = {}; todaysRoster = [];
@@ -1524,9 +1535,9 @@ function renderRoom() {
       $("turnBanner").textContent = `Starting in ${m}:${String(s).padStart(2, "0")}`;
     };
     _tickBanner();
-    if (!_pickTimerT) _pickTimerT = setInterval(_tickBanner, 500);
+    if (!_lobbyTimerT) _lobbyTimerT = setInterval(_tickBanner, 500);
   } else {
-    if (_pickTimerT) { clearInterval(_pickTimerT); _pickTimerT = null; }
+    if (_lobbyTimerT) { clearInterval(_lobbyTimerT); _lobbyTimerT = null; }
     $("turnBanner").className = "turnBanner" + (myTurn ? "" : " waiting");
     $("turnBanner").textContent = draft.local
       ? (t.bot ? `${t.name} is thinking…` : `📱 Pass the phone — ${t.name} picks!`)

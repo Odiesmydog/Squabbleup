@@ -160,7 +160,7 @@ async function todaysTeams(sport) {
 const _schedCache = new Map();
 const _SCHED_TTL = 5 * 60 * 1000;
 // Sports that pull live ESPN data benefit from a shorter cache so stale rosters refresh quickly
-const _SCHED_TTL_SHORT = { GOLF: 60 * 1000, WCUP: 60 * 1000, SOC: 60 * 1000, UFC: 60 * 1000, TEN: 60 * 1000 };
+const _SCHED_TTL_SHORT = { MLB: 2 * 60 * 1000, GOLF: 60 * 1000, WCUP: 60 * 1000, SOC: 60 * 1000, UFC: 60 * 1000, TEN: 60 * 1000 };
 
 async function _fetchSchedule(sport) {
   // Golf: pull actual tournament field from ESPN scoreboard competitors list
@@ -457,8 +457,8 @@ async function _fetchSchedule(sport) {
               if (a.displayName) {
                 const rawPos = knownPos.get(a.displayName) || a.position?.abbreviation || "?";
                 const pos = FAMILY[sport] === "soccer" ? (SOC_POS[rawPos] || rawPos) : rawPos;
-                // MLB: skip pitchers not starting today (only include if we have probable data)
-                if (sport === "MLB" && probablePitchers.size > 0 && MLB_PITCHER_POS.has(rawPos) && !probablePitchers.has(a.displayName)) continue;
+                // MLB: skip pitchers not in probable starters list; when list is empty exclude all pitchers
+                if (sport === "MLB" && MLB_PITCHER_POS.has(rawPos) && !probablePitchers.has(a.displayName)) continue;
                 names.add(a.displayName);
                 roster.push({ n: a.displayName, pos, tm: abbr, sp: sport });
                 added = true;
