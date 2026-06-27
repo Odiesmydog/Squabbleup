@@ -53,7 +53,8 @@ function golfPoints(pos) {
   if (pos <= 40) return 5; if (pos <= 50) return 4;
   return 3; // made the cut / finished
 }
-const TENNIS_WIN = 10;
+// Tennis pts: match win 15, per set won 3, straight-sets bonus 5
+const TENNIS_MATCH_WIN = 15, TENNIS_SET = 3, TENNIS_STRAIGHT = 5;
 
 // ---------- name matching ----------
 const norm = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z ]/g, "").replace(/\s+/g, " ").trim();
@@ -599,26 +600,38 @@ async function pollTennisDay(pool, dayDate) {
     let sb;
     try { sb = await jget(`https://site.api.espn.com/apis/site/v2/sports/tennis/${tour}/scoreboard?dates=${day}`); }
     catch { continue; }
-    const wins = new Map();
+    const ptMap = new Map(), lineMap = new Map();
     for (const ev of sb.events || []) {
-      // matches live in groupings[].competitions[], not ev.competitions
       const allMatches = [];
-      for (const g of ev.groupings || []) {
-        for (const m of g.competitions || []) allMatches.push(m);
-      }
-      // fallback: direct competitions on event
+      for (const g of ev.groupings || []) for (const m of g.competitions || []) allMatches.push(m);
       for (const m of ev.competitions || []) allMatches.push(m);
       for (const m of allMatches) {
-        for (const c of m.competitors || []) {
+        const comps = m.competitors || [];
+        if (comps.length < 2) continue;
+        // only score completed matches where someone has won
+        const hasWinner = comps.some(c => c.winner);
+        if (!hasWinner) continue;
+        for (const c of comps) {
           const name = c.athlete?.displayName || c.team?.displayName;
-          if (!name || !c.winner) continue;
+          if (!name) continue;
           const poolName = matchPool(idx, name);
-          if (poolName) wins.set(poolName, (wins.get(poolName) || 0) + 1);
+          if (!poolName) continue;
+          const isWinner = !!c.winner;
+          const setsWon = Math.min(parseInt(c.score) || 0, 5); // ESPN score = sets won
+          const oppSets = Math.min(parseInt(comps.find(x => x !== c)?.score) || 0, 5);
+          let pts = 0; const parts = [];
+          if (isWinner) { pts += TENNIS_MATCH_WIN; parts.push("match W"); }
+          if (setsWon > 0) { pts += setsWon * TENNIS_SET; parts.push(`${setsWon} sets`); }
+          if (isWinner && oppSets === 0 && setsWon > 0) { pts += TENNIS_STRAIGHT; parts.push("straight sets +5"); }
+          if (pts > 0) {
+            ptMap.set(poolName, (ptMap.get(poolName) || 0) + pts);
+            lineMap.set(poolName, [...(lineMap.get(poolName) || []), parts.join(", ")]);
+          }
         }
       }
     }
-    for (const [poolName, w] of wins) {
-      await upsertScore(pool, dayDate, "TEN", poolName, w * TENNIS_WIN, `${w} match win${w > 1 ? "s" : ""}`);
+    for (const [poolName, pts] of ptMap) {
+      await upsertScore(pool, dayDate, "TEN", poolName, pts, (lineMap.get(poolName) || []).join(" | "));
     }
   }
 }
@@ -746,7 +759,7 @@ async function seedDemo(pool) {
       } else if (p.sp === "GOLF") {
         const pos = rnd(1, 50); pts = golfPoints(pos); line = `position ${pos} (demo)`;
       } else if (p.sp === "TEN") {
-        const w = rnd(0, 1); pts = w * TENNIS_WIN; line = w ? "1 match win (demo)" : "lost (demo)";
+        const w = rnd(0, 1); const dSets = w ? rnd(2, 3) : rnd(0, 2); pts = w * TENNIS_MATCH_WIN + dSets * TENNIS_SET + (w && dSets >= 2 && rnd(0,1) ? TENNIS_STRAIGHT : 0); line = w ? `match W, ${dSets} sets (demo)` : `lost, ${dSets} sets (demo)`;
         if (!w) continue;
       }
       await upsertScore(pool, d, p.sp, p.n, Math.round(pts * 10) / 10, line);
