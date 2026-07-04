@@ -85,11 +85,10 @@ Important choices:
 ## 6. ⚠️ Review risks specific to SquabbleUP — read this
 
 1. **Handshake mode looks like wagering.** Apple guideline 5.3 is strict about real-money
-   gaming. The app never touches money, but a field that says `"$10 each"` can read like
-   facilitating a bet. Mitigations if the reviewer pushes back:
-   - the placeholder already includes non-money examples ("winner buys drinks");
-   - be ready to reframe it as "friendly stakes / bragging rights" and drop the "$"
-     example from the placeholder;
+   gaming. The app never touches money, and the placeholder examples are deliberately
+   non-monetary ("loser buys pizza", "winner picks the next movie"). If the reviewer
+   still pushes back:
+   - frame it as "friendly stakes / bragging rights" in your reply;
    - worst case, hide handshake mode on iOS builds only.
    Don't volunteer the word "bet" anywhere in the listing.
 2. **Accounts are device-bound** (no login). That's allowed, but the reviewer may lose
