@@ -2,8 +2,11 @@ services:
   - type: web
     name: squabbleup
     runtime: node
+    plan: starter # paid always-on plan — free tier spins down and kills WebSockets/timers
+    numInstances: 1 # MUST stay 1: ws subscriptions + draft timers live in process memory
     buildCommand: npm install
     startCommand: node server.js
+    healthCheckPath: /api/stats
     envVars:
       - key: NODE_ENV
         value: production

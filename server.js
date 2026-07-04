@@ -4,17 +4,44 @@ const express = require("express");
 const path = require("path");
 const http = require("http");
 const crypto = require("crypto");
+const compression = require("compression");
 const { WebSocketServer } = require("ws");
 const { Pool } = require("pg");
 const webpush = require("web-push");
+
+// Never let one unhandled error take down every live draft — log and keep serving.
+process.on("unhandledRejection", (e) => console.error("unhandledRejection", e?.message || e));
+process.on("uncaughtException", (e) => console.error("uncaughtException", e?.stack || e));
 
 const VAPID_PUBLIC  = process.env.VAPID_PUBLIC_KEY  || "BCTL-yEHc54ilFkaUMTIAwweXFGanucsmCeSwS9LcJeCnPktpBtdtcNEdjiWUZEvY8Cjbqt5ynwqNDSJSuHp9Mk";
 const VAPID_PRIVATE = process.env.VAPID_PRIVATE_KEY || "G1RcF5nesMLPFCo4cQrx-D6tifzPrFGZTi-NWSCKD4A";
 webpush.setVapidDetails("mailto:twicebrian@gmail.com", VAPID_PUBLIC, VAPID_PRIVATE);
 
 const app = express();
+app.use(compression()); // gzip — index.html + players-data.js shrink ~75%
 app.use(express.json({ limit: "200kb" }));
-app.use(express.static(path.join(__dirname, "public")));
+
+// Simple per-IP rate limit so one runaway client can't starve everyone else.
+// In-memory is fine: the app is single-instance by design (ws subs live in memory).
+const _rl = new Map(); // ip -> { n, t }
+const RL_WINDOW = 30_000, RL_MAX = 300; // 300 req / 30s ≈ 10 rps sustained per IP
+app.use("/api/", (req, res, next) => {
+  const ip = req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || req.socket.remoteAddress || "?";
+  const now = Date.now();
+  let e = _rl.get(ip);
+  if (!e || now - e.t > RL_WINDOW) { e = { n: 0, t: now }; _rl.set(ip, e); }
+  if (++e.n > RL_MAX) return res.status(429).json({ error: "Slow down — too many requests" });
+  next();
+});
+setInterval(() => { const now = Date.now(); for (const [ip, e] of _rl) if (now - e.t > RL_WINDOW * 2) _rl.delete(ip); }, 60_000);
+
+app.use(express.static(path.join(__dirname, "public"), {
+  setHeaders: (res, p) => {
+    // HTML + service worker must revalidate; versioned assets (?v=N) can cache long
+    if (p.endsWith(".html") || p.endsWith("sw.js")) res.setHeader("Cache-Control", "no-cache");
+    else res.setHeader("Cache-Control", "public, max-age=86400");
+  },
+}));
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -71,6 +98,7 @@ async function initDb() {
     );
     INSERT INTO stats (key, val) VALUES ('drafts_created', 0) ON CONFLICT DO NOTHING;
     CREATE INDEX IF NOT EXISTS idx_drafts_participants ON drafts USING GIN(participants);
+    CREATE INDEX IF NOT EXISTS idx_drafts_status ON drafts ((state->>'status'));
     CREATE INDEX IF NOT EXISTS idx_push_subs_user ON push_subscriptions(user_id);
     CREATE INDEX IF NOT EXISTS idx_player_scores_sport_day ON player_scores(sport, day);
     CREATE INDEX IF NOT EXISTS idx_friendships_b ON friendships(b);
@@ -282,6 +310,17 @@ function finishDraft(st) {
 // ---------------- api ----------------
 const ah = (fn) => (req, res) => fn(req, res).catch((e) => { console.error(e); res.status(500).json({ error: "server error" }); });
 
+// Micro-cache for endpoints every home-screen client polls. At 1,000 concurrent
+// users this turns ~100 identical queries/sec into one query per 5 seconds.
+const _microCache = new Map(); // key -> { t, data }
+async function cached(key, ttlMs, fn) {
+  const hit = _microCache.get(key);
+  if (hit && Date.now() - hit.t < ttlMs) return hit.data;
+  const data = await fn();
+  _microCache.set(key, { t: Date.now(), data });
+  return data;
+}
+
 app.get("/api/push/key", (req, res) => res.json({ key: VAPID_PUBLIC }));
 app.post("/api/push/subscribe", ah(async (req, res) => {
   const { userId, subscription } = req.body;
@@ -472,26 +511,32 @@ app.post("/api/draft/save-local", ah(async (req, res) => {
   res.json({ code, scoring: st.scoring });
 }));
 
-// Public stats — total squabbles ever created
+// Public stats — total squabbles ever created (5s micro-cache)
 app.get("/api/stats", ah(async (req, res) => {
-  const r = await pool.query("SELECT val FROM stats WHERE key='drafts_created'");
-  res.json({ draftsCreated: parseInt(r.rows[0]?.val || 0) });
+  const out = await cached("stats", 5000, async () => {
+    const r = await pool.query("SELECT val FROM stats WHERE key='drafts_created'");
+    return { draftsCreated: parseInt(r.rows[0]?.val || 0) };
+  });
+  res.json(out);
 }));
 
-// Public lobby — open squabbles anyone can join
+// Public lobby — open squabbles anyone can join (5s micro-cache)
 app.get("/api/lobby", ah(async (req, res) => {
-  const r = await pool.query(
-    `SELECT code, state FROM drafts WHERE (state->>'status')='lobby' AND (state->>'public')='true' ORDER BY updated DESC LIMIT 20`
-  );
-  const rooms = r.rows.map(({ code, state: s }) => ({
-    code,
-    name: s.name,
-    sport: s.sport,
-    rounds: s.rounds,
-    host: { name: s.seats[0]?.name, av: s.seats[0]?.av },
-    seats: s.seats.length,
-  }));
-  res.json({ rooms });
+  const out = await cached("lobby", 5000, async () => {
+    const r = await pool.query(
+      `SELECT code, state FROM drafts WHERE (state->>'status')='lobby' AND (state->>'public')='true' ORDER BY updated DESC LIMIT 20`
+    );
+    const rooms = r.rows.map(({ code, state: s }) => ({
+      code,
+      name: s.name,
+      sport: s.sport,
+      rounds: s.rounds,
+      host: { name: s.seats[0]?.name, av: s.seats[0]?.av },
+      seats: s.seats.length,
+    }));
+    return { rooms };
+  });
+  res.json(out);
 }));
 
 // Peek at a public lobby room without joining — returns seats + recent chat
@@ -873,7 +918,10 @@ app.delete("/api/admin/draft/:code", ah(async (req, res) => {
 }));
 
 // spa fallback for invite links
-app.get("*", (req, res) => res.sendFile(path.join(__dirname, "public", "index.html")));
+app.get("*", (req, res) => {
+  res.setHeader("Cache-Control", "no-cache");
+  res.sendFile(path.join(__dirname, "public", "index.html"));
+});
 
 const PORT = process.env.PORT || 3000;
 const SCORE_POLL_MIN = +(process.env.SCORE_POLL_MIN || 5);
@@ -948,6 +996,14 @@ async function cleanupStaleLobbies() {
     }
   } catch (e) { console.error("lobby cleanup", e.message); }
 }
+
+// Graceful shutdown: Render sends SIGTERM on every deploy — finish in-flight
+// requests and release DB connections instead of dropping them mid-pick.
+process.on("SIGTERM", () => {
+  console.log("SIGTERM — draining connections");
+  server.close(() => pool.end().finally(() => process.exit(0)));
+  setTimeout(() => process.exit(0), 8000).unref(); // hard stop if something hangs
+});
 
 initDb().then(() => {
   server.listen(PORT, () => console.log("SquabbleUP live on :" + PORT));

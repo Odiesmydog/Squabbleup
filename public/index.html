@@ -894,6 +894,7 @@ function loadHome() { gotoTab(curTab in TABSCR ? curTab : "home"); }
 const SPORTEMOJI = { NFL:"🏈", NBA:"🏀", MLB:"⚾", NHL:"🏒", GOLF:"⛳", TEN:"🎾", CBB:"🏀", CFB:"🏈", UFC:"🥊", WCUP:"🌍", SOC:"⚽" };
 let _pubPollT = null;
 async function fetchPublicRooms() {
+  if (document.hidden) return; // don't burn server requests from background tabs
   try {
     const [{ rooms }, { draftsCreated }] = await Promise.all([
       api("/api/lobby"),
@@ -1394,7 +1395,7 @@ function connect(code) {
   }
   _openWS();
   pollT = setInterval(async () => {
-    if (!_connected) return;
+    if (!_connected || document.hidden) return;
     if (ws && ws.readyState === 1) return;
     try { draft = await api("/api/draft/" + code); routeDraft(); }
     catch (err) {
@@ -2324,6 +2325,13 @@ if ('serviceWorker' in navigator) {
     }
   });
 }
+// catch up immediately when the app returns to the foreground
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) return;
+  if (draft && _connected) api("/api/draft/" + draft.code).then((d) => { draft = d; routeDraft(); }).catch(() => {});
+  else if (curTab === "home" && me?.id) fetchPublicRooms();
+});
+
 renderTop();
 if (!me) openProfile(true);
 else if (pendingJoin) { const c = pendingJoin; pendingJoin = null; joinByCode(c); }
