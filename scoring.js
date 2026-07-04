@@ -201,39 +201,51 @@ async function _fetchSchedule(sport) {
       return { players: names.size > 0 ? names : null, matchups, roster };
     } catch { return { players: null, matchups: {}, roster: [] }; }
   }
-  // UFC: fighters from tonight's card
+  // UFC: fighters from tonight's card — or, on off days, the NEXT card (up to 14
+  // days out). Never fall back to the static fighter list: it isn't tied to any
+  // real booking, so it offers fighters who aren't fighting anytime soon.
   if (sport === "UFC") {
-    const day = dstr(new Date());
+    const WT = {
+      heavyweight: "HW", "light heavyweight": "LHW", middleweight: "MW",
+      welterweight: "WW", lightweight: "LW", featherweight: "FW",
+      bantamweight: "BW", flyweight: "FLW", "women's strawweight": "WSW",
+      "women's flyweight": "WFLW", "women's bantamweight": "WBW", "women's featherweight": "WFW",
+    };
+    const short = (n) => { const p = n.trim().split(" "); return p.length >= 2 ? p[0][0] + ". " + p[p.length - 1] : n; };
     try {
-      const sb = await jget(`https://site.api.espn.com/apis/site/v2/sports/mma/ufc/scoreboard?dates=${day}`);
-      if (!sb.events?.length) return { players: null, matchups: {}, roster: [] };
-      const WT = {
-        heavyweight: "HW", "light heavyweight": "LHW", middleweight: "MW",
-        welterweight: "WW", lightweight: "LW", featherweight: "FW",
-        bantamweight: "BW", flyweight: "FLW", "women's strawweight": "WSW",
-        "women's flyweight": "WFLW", "women's bantamweight": "WBW", "women's featherweight": "WFW",
-      };
-      const short = (n) => { const p = n.trim().split(" "); return p.length >= 2 ? p[0][0] + ". " + p[p.length - 1] : n; };
-      const names = new Set(); const roster = [];
-      for (const ev of sb.events || []) {
-        for (const comp of ev.competitions || []) {
-          const cState = comp.status?.type?.state;
-          if (cState === "post") continue;
-          const livelock = cState === "in"; // fight underway — lock it
-          const cs = comp.competitors || [];
-          if (cs.length < 2) continue;
-          const [aN, bN] = [cs[0], cs[1]].map((c) => c.athlete?.displayName);
-          if (!aN || !bN) continue;
-          // comp.type.abbreviation = "Featherweight"; text/name may say "Lightweight Championship"
-          const wtText = (comp.type?.abbreviation || comp.type?.text || comp.type?.name || "").toLowerCase();
-          const pos = Object.entries(WT).find(([k]) => wtText.includes(k))?.[1] || "MMA";
-          const recStr = (c) => { const r = c.records?.find((x) => x.type === "total"); if (!r) return ""; const p = r.summary.split("-"); return p[2] === "0" ? `${p[0]}-${p[1]}` : r.summary; };
-          names.add(aN); names.add(bN);
-          roster.push({ n: aN, pos, tm: "vs " + short(bN), sp: "UFC", rec: recStr(cs[0]), ...(livelock ? { livelock: true } : {}) });
-          roster.push({ n: bN, pos, tm: "vs " + short(aN), sp: "UFC", rec: recStr(cs[1]), ...(livelock ? { livelock: true } : {}) });
+      for (let i = 0; i < 14; i++) {
+        const d = new Date(Date.now() + i * 864e5);
+        let sb;
+        try { sb = await jget(`https://site.api.espn.com/apis/site/v2/sports/mma/ufc/scoreboard?dates=${dstr(d)}`); }
+        catch { continue; }
+        if (!sb.events?.length) continue;
+        const future = i > 0;
+        const dateLbl = future ? d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }) : "";
+        const names = new Set(); const roster = [];
+        for (const ev of sb.events || []) {
+          const evName = ev.shortName || ev.name || "UFC";
+          for (const comp of ev.competitions || []) {
+            const cState = comp.status?.type?.state;
+            if (cState === "post") continue;
+            const livelock = cState === "in"; // fight underway — lock it
+            const cs = comp.competitors || [];
+            if (cs.length < 2) continue;
+            const [aN, bN] = [cs[0], cs[1]].map((c) => c.athlete?.displayName);
+            if (!aN || !bN) continue;
+            // comp.type.abbreviation = "Featherweight"; text/name may say "Lightweight Championship"
+            const wtText = (comp.type?.abbreviation || comp.type?.text || comp.type?.name || "").toLowerCase();
+            const pos = Object.entries(WT).find(([k]) => wtText.includes(k))?.[1] || "MMA";
+            const recStr = (c) => { const r = c.records?.find((x) => x.type === "total"); if (!r) return ""; const p = r.summary.split("-"); return p[2] === "0" ? `${p[0]}-${p[1]}` : r.summary; };
+            const evTag = future ? ` · ${evName} ${dateLbl}` : "";
+            names.add(aN); names.add(bN);
+            roster.push({ n: aN, pos, tm: "vs " + short(bN), sp: "UFC", rec: recStr(cs[0]), ...(evTag ? { ev: "vs " + short(bN) + evTag } : {}), ...(livelock ? { livelock: true } : {}) });
+            roster.push({ n: bN, pos, tm: "vs " + short(aN), sp: "UFC", rec: recStr(cs[1]), ...(evTag ? { ev: "vs " + short(aN) + evTag } : {}), ...(livelock ? { livelock: true } : {}) });
+          }
         }
+        // card found but every fight finished (late night) — keep looking ahead
+        if (names.size > 0) return { players: names, matchups: {}, roster };
       }
-      return { players: names.size > 0 ? names : null, matchups: {}, roster };
+      return { players: new Set(), matchups: {}, roster: [] }; // no card in 14 days — nothing draftable
     } catch { return { players: null, matchups: {}, roster: [] }; }
   }
   // Tennis: pull actual match competitors from ESPN groupings (matches live under

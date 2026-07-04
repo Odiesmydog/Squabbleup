@@ -291,7 +291,10 @@ function applyPick(st, p) {
   st.picks.push({ seat: idx, player: p.n, pos: p.pos, sp: p.sp, tm: p.tm });
   st.seats[idx].roster.push({ n: p.n, pos: p.pos, sp: p.sp, tm: p.tm });
 }
-const SCORING_DAYS = { NFL: 7, CFB: 7, NBA: 1, CBB: 1, MLB: 1, NHL: 1, GOLF: 7, TEN: 2, UFC: 2, WCUP: 2, SOC: 2 };
+// UFC gets 8 days: off-day drafts pull the NEXT card (up to a week out), so the
+// window must stay open long enough to cover it. Pre-draft scores can't leak in
+// anyway (first_scored_at guard in scoring.js).
+const SCORING_DAYS = { NFL: 7, CFB: 7, NBA: 1, CBB: 1, MLB: 1, NHL: 1, GOLF: 7, TEN: 2, UFC: 8, WCUP: 2, SOC: 2 };
 function finishDraft(st) {
   st.status = "done";
   if (st.sport === "GOLF") {
