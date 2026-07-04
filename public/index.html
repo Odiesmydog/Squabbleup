@@ -739,8 +739,8 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
 // ================= helpers =================
 const $ = (id) => document.getElementById(id);
 const show = (id) => { document.querySelectorAll(".screen").forEach((s) => s.classList.remove("on")); $(id).classList.add("on"); };
-const avHtml = (p, cls = "av") => `<span class="${cls}">${p.img ? `<img src="${p.img}" alt="" onerror="this.remove()" />` : (p.av || "🙂")}</span>`;
 const esc = (s) => String(s).replace(/[<>&"]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;" }[c]));
+const avHtml = (p, cls = "av") => `<span class="${cls}">${p.img ? `<img src="${esc(p.img)}" alt="" onerror="this.remove()" />` : (p.av || "🙂")}</span>`;
 let toastT;
 function toast(msg) { const t = $("toast"); t.textContent = msg; t.style.display = "block"; clearTimeout(toastT); toastT = setTimeout(() => (t.style.display = "none"), 2200); }
 async function api(path, body) {
@@ -800,7 +800,7 @@ $("profSave").addEventListener("click", async () => {
 $("meChip").addEventListener("click", () => openProfile(false));
 function renderTop() {
   $("meName").textContent = me?.name || "…";
-  $("meAv").innerHTML = me?.img ? `<img src="${me.img}" alt="" onerror="this.remove()" />` : (me?.av || "🙂");
+  $("meAv").innerHTML = me?.img ? `<img src="${esc(me.img)}" alt="" onerror="this.remove()" />` : (me?.av || "🙂");
 }
 
 // ================= tabs + home data =================
@@ -1029,7 +1029,7 @@ function renderTabs() {
 }
 function renderProfileTab() {
   $("profNameBig").textContent = me.name;
-  $("profAvBig").innerHTML = me.img ? `<img src="${me.img}" alt="" onerror="this.remove()" />` : me.av;
+  $("profAvBig").innerHTML = me.img ? `<img src="${esc(me.img)}" alt="" onerror="this.remove()" />` : me.av;
   $("myCode").textContent = me.friendcode;
   $("friendErr").textContent = "";
   $("friendsList").innerHTML = homeData.friends.length
@@ -1187,7 +1187,7 @@ async function joinByCode(code) {
   if (!me?.id) { toast("Please set up your profile first"); return; }
   code = code.toUpperCase();
   try { draft = await api(`/api/draft/${code}/join`, { userId: me.id }); }
-  catch (err) { toast(err?.message || "Couldn't join — try again"); return; }
+  catch { return; } // api() already toasted the error
   history.replaceState(null, "", "/");
   connect(code);
   routeDraft();
@@ -1209,6 +1209,12 @@ function connect(code) {
       ws.onmessage = (e) => {
         if (!_connected) return;
         const m = JSON.parse(e.data);
+        if (m.type === "deleted") {
+          toast("This draft was closed");
+          draft = null;
+          gotoTab("home");
+          return;
+        }
         if (m.type === "state") {
           const prevSeats = draft?.seats?.length || 0;
           draft = m.state;
@@ -1231,7 +1237,11 @@ function connect(code) {
   pollT = setInterval(async () => {
     if (!_connected) return;
     if (ws && ws.readyState === 1) return;
-    try { draft = await api("/api/draft/" + code); routeDraft(); } catch {}
+    try { draft = await api("/api/draft/" + code); routeDraft(); }
+    catch (err) {
+      // draft was deleted while we were offline from the ws — go home instead of polling forever
+      if (String(err?.message).includes("not found")) { draft = null; gotoTab("home"); }
+    }
   }, 3500);
 }
 function leaveDraft() {
@@ -1257,6 +1267,13 @@ function leaveDraft() {
 
 function routeDraft() {
   if (!draft || (!_connected && !draft.local)) return;
+  // kicked from the lobby by the host — bail out instead of showing a room we're not in
+  if (!draft.local && draft.status === "lobby" && !draft.seats.some((s) => s.userId === me.id)) {
+    toast("You were removed from this draft");
+    draft = null;
+    gotoTab("home");
+    return;
+  }
   $("bnav").style.display = "none";
   if (draft.status === "lobby" && !draft.startingAt) renderLobby();
   else if (draft.status === "lobby" || draft.status === "active") renderRoom();
@@ -1308,7 +1325,7 @@ function renderLobby() {
     // countdown timer for public rooms (auto-close after 20 min)
     if (draft.public && draft.createdAt) {
       function _updateExpiry() {
-        const rem = draft.createdAt + 20 * 60 * 1000 - Date.now();
+        const rem = draft.createdAt + 60 * 60 * 1000 - Date.now(); // server closes public lobbies after 1h
         const el = $("lobbyExpiry");
         if (!el) return;
         if (rem <= 0) { el.textContent = "⏱ Room closing…"; return; }
@@ -1410,7 +1427,7 @@ $("lobbyShuffle").addEventListener("click", async () => {
 
   // show slot rows — gold position number left, spinning name right
   $("lobbySeats").innerHTML = names.map((n, i) =>
-    `<div class="slotRow"><span class="slotPos">${i + 1}</span><span class="slotName" id="sn${i}">${n}</span></div>`
+    `<div class="slotRow"><span class="slotPos">${i + 1}</span><span class="slotName" id="sn${i}">${esc(n)}</span></div>`
   ).join("");
 
   const serverCall = api(`/api/draft/${draft.code}/shuffle`, { hostId: me.id }).catch(() => null);
@@ -1734,13 +1751,14 @@ function fireAutoDraft() {
   }, 1200);
 }
 $("pool").addEventListener("click", async (e) => {
-  const name = e.target.getAttribute("data-pick");
+  const btn = e.target.closest("[data-pick]");
+  const name = btn?.getAttribute("data-pick");
   if (name) {
-    e.target.disabled = true;
+    btn.disabled = true;
     if (draft.local) { localPick(name); return; }
     const pInfo = PLAYERS.find((x) => x.n === name) || todaysRoster.find((x) => x.n === name) || {};
     try { draft = await api(`/api/draft/${draft.code}/pick`, { userId: me.id, player: name, pos: pInfo.pos, sp: pInfo.sp, tm: pInfo.tm }); routeDraft(); }
-    catch (e) { toast(e?.message || "Pick failed — try again"); e.target && (e.target.disabled = false); }
+    catch (err) { toast(err?.message || "Pick failed — try again"); btn.disabled = false; }
     return;
   }
   // tap on row (not button) → player detail popup

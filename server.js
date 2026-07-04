@@ -145,6 +145,19 @@ async function broadcast(code) {
   }
 }
 
+// Tell connected clients the draft no longer exists, then drop their subscriptions.
+// Must be used instead of broadcast() when deleting: broadcast reads the DB row,
+// finds nothing after a DELETE, and silently does nothing.
+function broadcastDeleted(code) {
+  const msg = JSON.stringify({ type: "deleted" });
+  for (const ws of subs.get(code) || []) {
+    if (ws.readyState === 1) ws.send(msg);
+  }
+  subs.delete(code);
+  lastNotifiedPick.delete(code);
+  if (pendingPickNotify.has(code)) { clearTimeout(pendingPickNotify.get(code)); pendingPickNotify.delete(code); }
+}
+
 async function notifyPick(userId, draftName, code) {
   const rows = (await pool.query("SELECT subscription FROM push_subscriptions WHERE user_id=$1", [userId])).rows;
   await Promise.all(rows.map(async (row) => {
@@ -504,7 +517,9 @@ async function hostAction(req, res, fn) {
   if (st.hostId !== req.body.hostId) return res.status(403).json({ error: "Only the host can do that" });
   const err = fn(st);
   if (err) return res.status(400).json({ error: err });
-  await pool.query("UPDATE drafts SET state=$1, updated=now() WHERE code=$2", [st, code]);
+  // keep participants in sync with seats so kicked users don't keep the draft in their lists
+  const parts = st.seats.map((s) => s.userId).filter(Boolean);
+  await pool.query("UPDATE drafts SET state=$1, participants=$2, updated=now() WHERE code=$3", [st, parts, code]);
   broadcast(code).catch(console.error);
   res.json(st);
 }
@@ -586,7 +601,7 @@ app.post("/api/draft/:code/shuffle", ah((req, res) => hostAction(req, res, (st) 
   st.chat.push({ name: "Draft Order", av: "🎲", img: "", text: "Order shuffled! " + st.seats.map((x) => x.name).join(" → "), t: Date.now() });
 })));
 
-// leave a lobby draft (non-host removes self; host with no others deletes it)
+// leave a lobby draft (non-host removes self; host hands off to another human, or the room closes)
 app.post("/api/draft/:code/leave", ah(async (req, res) => {
   const code = req.params.code.toUpperCase();
   const { userId } = req.body;
@@ -594,14 +609,20 @@ app.post("/api/draft/:code/leave", ah(async (req, res) => {
   const st = r.rows[0]?.state;
   if (!st) return res.status(404).json({ error: "Draft not found" });
   if (st.status !== "lobby") return res.status(400).json({ error: "Draft already started" });
-  if (st.hostId === userId && st.seats.length <= 1) {
-    await pool.query("DELETE FROM drafts WHERE code=$1", [code]);
-  } else {
-    st.seats = st.seats.filter((s) => s.userId !== userId);
-    st.participants = (st.participants || []).filter((id) => id !== userId);
-    await pool.query("UPDATE drafts SET state=$1, participants=$2, updated=now() WHERE code=$3", [st, st.participants, code]);
-    broadcast(code);
+  st.seats = st.seats.filter((s) => s.userId !== userId);
+  const remainingHumans = st.seats.filter((s) => s.userId);
+  if (st.hostId === userId) {
+    if (!remainingHumans.length) {
+      // no humans left — close the room entirely
+      await pool.query("DELETE FROM drafts WHERE code=$1", [code]);
+      broadcastDeleted(code);
+      return res.json({ ok: true });
+    }
+    st.hostId = remainingHumans[0].userId; // hand host to the next human so the room isn't orphaned
+    st.chat.push({ name: "SquabbleUP", av: "👑", img: "", text: `${remainingHumans[0].name} is now the host`, t: Date.now() });
   }
+  await pool.query("UPDATE drafts SET state=$1, participants=array_remove(participants,$2), updated=now() WHERE code=$3", [st, userId, code]);
+  broadcast(code);
   res.json({ ok: true });
 }));
 
@@ -615,7 +636,7 @@ app.post("/api/draft/:code/close", ah(async (req, res) => {
   if (st.hostId !== hostId) return res.status(403).json({ error: "Only the host can close the room" });
   if (st.public && st.status !== "lobby") return res.status(400).json({ error: "Public drafts cannot be cancelled once started" });
   await pool.query("DELETE FROM drafts WHERE code=$1", [code]);
-  broadcast(code);
+  broadcastDeleted(code);
   res.json({ ok: true });
 }));
 
@@ -761,7 +782,7 @@ app.delete("/api/admin/draft/:code", ah(async (req, res) => {
   if (!key || key !== process.env.ADMIN_KEY) return res.status(403).json({ error: "Forbidden" });
   const code = req.params.code.toUpperCase();
   await pool.query("DELETE FROM drafts WHERE code=$1", [code]);
-  broadcast(code);
+  broadcastDeleted(code);
   res.json({ ok: true, deleted: code });
 }));
 
@@ -770,7 +791,7 @@ app.get("*", (req, res) => res.sendFile(path.join(__dirname, "public", "index.ht
 
 const PORT = process.env.PORT || 3000;
 const SCORE_POLL_MIN = +(process.env.SCORE_POLL_MIN || 5);
-// Auto-close public lobby rooms that haven't started within 20 minutes.
+// Auto-close lobby rooms that never start (public 1h, private 12h) and stuck active drafts.
 // Uses createdAt from state when present, falls back to DB updated column.
 async function cleanupStaleLobbies() {
   try {
@@ -788,7 +809,7 @@ async function cleanupStaleLobbies() {
     );
     for (const row of r.rows) {
       await pool.query("DELETE FROM drafts WHERE code=$1", [row.code]);
-      broadcast(row.code);
+      broadcastDeleted(row.code);
       console.log("Auto-closed expired public lobby:", row.code);
     }
     // Private (friends-only) lobbies: close after 12 hours with no start
@@ -801,7 +822,7 @@ async function cleanupStaleLobbies() {
     );
     for (const row of stalePrivate.rows) {
       await pool.query("DELETE FROM drafts WHERE code=$1", [row.code]);
-      broadcast(row.code).catch(() => {});
+      broadcastDeleted(row.code);
       console.log("Auto-removed stale private lobby:", row.code);
     }
     // Nuke timed active drafts idle for 4+ hours (timer expired, nobody picking)
@@ -813,7 +834,7 @@ async function cleanupStaleLobbies() {
     );
     for (const row of staleActive.rows) {
       await pool.query("DELETE FROM drafts WHERE code=$1", [row.code]);
-      broadcast(row.code).catch(() => {});
+      broadcastDeleted(row.code);
       console.log("Auto-removed stale timed active draft:", row.code);
     }
     // Nuke active drafts where nobody ever made a single pick — stuck at the gate
@@ -825,7 +846,7 @@ async function cleanupStaleLobbies() {
     );
     for (const row of noPicks.rows) {
       await pool.query("DELETE FROM drafts WHERE code=$1", [row.code]);
-      broadcast(row.code).catch(() => {});
+      broadcastDeleted(row.code);
       console.log("Auto-removed stuck active draft (0 picks, 2h idle):", row.code);
     }
     // Also nuke ALL active drafts idle for 24+ hours (covers no-timer stuck drafts)
@@ -836,7 +857,7 @@ async function cleanupStaleLobbies() {
     );
     for (const row of allStaleActive.rows) {
       await pool.query("DELETE FROM drafts WHERE code=$1", [row.code]);
-      broadcast(row.code).catch(() => {});
+      broadcastDeleted(row.code);
       console.log("Auto-removed stale active draft (24h idle):", row.code);
     }
   } catch (e) { console.error("lobby cleanup", e.message); }
