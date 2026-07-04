@@ -274,6 +274,7 @@ function scheduleBot(code, s) {
       .filter((p) => !taken.has(p.n))
       .filter((p) => st.sport === "ALL" || p.sp === st.sport)
       .filter((p) => !todayNames || todayNames.has(p.n))
+      .filter((p) => !p.livelock)
       .sort((a, b) => (rankMap.get(a.n) || 999) - (rankMap.get(b.n) || 999))
       .slice(0, 5);
     const pick = avail[Math.floor(Math.random() * avail.length)];
@@ -869,6 +870,16 @@ app.post("/api/draft/:code/pick", ah(async (req, res) => {
   const idx = pickerIndex(st);
   if (st.seats[idx].userId !== userId) return res.status(403).json({ error: "Not your pick" });
   if (st.picks.some((p) => p.player === player)) return res.status(400).json({ error: "Already drafted" });
+  // Server-side eligibility check — clients hide ineligible players, but their
+  // schedule can be a couple of minutes stale (or hostile). Never trust it.
+  const sched = await scoring.todaysSchedule(st.sport).catch(() => null);
+  if (sched?.players) {
+    if (!sched.players.has(player))
+      return res.status(400).json({ error: `${player} isn't playing today — the list just refreshed` });
+    const rp = (sched.roster || []).find((x) => x.n === player);
+    if (rp?.livelock)
+      return res.status(400).json({ error: `${player} already started playing — pick someone whose game hasn't begun` });
+  }
   let p = PLAYERS.find((x) => x.n === player && (st.sport === "ALL" || x.sp === st.sport));
   if (!p && pos && sp && tm && (st.sport === "ALL" || sp === st.sport)) p = { n: player, pos, sp, tm };
   if (!p) return res.status(400).json({ error: "Unknown player" });

@@ -189,12 +189,12 @@ async function _fetchSchedule(sport) {
         roster.push({ n: name, pos: "G", tm: "GOLF", sp: "GOLF", ev: golfLabel, r,
           ...(isLive ? { livelock: true } : {}) });
       }
-      // fallback: static list when ESPN returns empty competitors
+      // fallback: static list when ESPN returns empty competitors (inherits live lock)
       if (names.size < 10) {
         for (const p of PLAYERS.filter((x) => x.sp === "GOLF")) {
           if (names.has(p.n)) continue;
           names.add(p.n);
-          roster.push({ ...p, ev: golfLabel });
+          roster.push({ ...p, ev: golfLabel, ...(isLive ? { livelock: true } : {}) });
         }
       }
       if (names.size > 0) matchups["GOLF"] = golfLabel;
@@ -217,7 +217,9 @@ async function _fetchSchedule(sport) {
       const names = new Set(); const roster = [];
       for (const ev of sb.events || []) {
         for (const comp of ev.competitions || []) {
-          if (comp.status?.type?.state === "post") continue;
+          const cState = comp.status?.type?.state;
+          if (cState === "post") continue;
+          const livelock = cState === "in"; // fight underway — lock it
           const cs = comp.competitors || [];
           if (cs.length < 2) continue;
           const [aN, bN] = [cs[0], cs[1]].map((c) => c.athlete?.displayName);
@@ -227,8 +229,8 @@ async function _fetchSchedule(sport) {
           const pos = Object.entries(WT).find(([k]) => wtText.includes(k))?.[1] || "MMA";
           const recStr = (c) => { const r = c.records?.find((x) => x.type === "total"); if (!r) return ""; const p = r.summary.split("-"); return p[2] === "0" ? `${p[0]}-${p[1]}` : r.summary; };
           names.add(aN); names.add(bN);
-          roster.push({ n: aN, pos, tm: "vs " + short(bN), sp: "UFC", rec: recStr(cs[0]) });
-          roster.push({ n: bN, pos, tm: "vs " + short(aN), sp: "UFC", rec: recStr(cs[1]) });
+          roster.push({ n: aN, pos, tm: "vs " + short(bN), sp: "UFC", rec: recStr(cs[0]), ...(livelock ? { livelock: true } : {}) });
+          roster.push({ n: bN, pos, tm: "vs " + short(aN), sp: "UFC", rec: recStr(cs[1]), ...(livelock ? { livelock: true } : {}) });
         }
       }
       return { players: names.size > 0 ? names : null, matchups: {}, roster };
@@ -432,9 +434,11 @@ async function _fetchSchedule(sport) {
     }
     const MLB_PITCHER_POS = new Set(["SP", "RP", "P", "LHP", "RHP"]);
     for (const ev of sb.events || []) {
-      // MLB: only draft from games not yet started; all others allow in-progress too
+      // MLB: only games not yet started. All other sports keep in-progress games
+      // visible but livelock their players — you can't draft someone mid-game.
       const evState = ev.status?.type?.state;
       if (sport === "MLB" ? evState !== "pre" : evState === "post") continue;
+      const livelock = evState === "in";
       const comps = ev.competitions?.[0]?.competitors || [];
       const away = comps.find((c) => c.homeAway === "away");
       const home = comps.find((c) => c.homeAway === "home");
@@ -461,13 +465,16 @@ async function _fetchSchedule(sport) {
                 // MLB: skip pitchers not in probable starters list; when list is empty exclude all pitchers
                 if (sport === "MLB" && MLB_PITCHER_POS.has(rawPos) && !probablePitchers.has(a.displayName)) continue;
                 names.add(a.displayName);
-                roster.push({ n: a.displayName, pos, tm: abbr, sp: sport });
+                roster.push({ n: a.displayName, pos, tm: abbr, sp: sport, ...(livelock ? { livelock: true } : {}) });
                 added = true;
               }
             }
           } catch {}
         }
-        if (!added) PLAYERS.filter((p) => p.sp === sport && p.tm === abbr).forEach((p) => { names.add(p.n); roster.push(p); });
+        // static fallback inherits the live lock and the MLB probable-pitcher filter
+        if (!added) PLAYERS.filter((p) => p.sp === sport && p.tm === abbr)
+          .filter((p) => !(sport === "MLB" && MLB_PITCHER_POS.has(p.pos) && !probablePitchers.has(p.n)))
+          .forEach((p) => { names.add(p.n); roster.push({ ...p, ...(livelock ? { livelock: true } : {}) }); });
       }
     }
     return { players: names.size > 0 ? names : null, matchups, roster };

@@ -1716,13 +1716,14 @@ function renderRoom() {
     show("scrRoom"); setTab("pick");
     todaysPlayers = null; nextGameDay = null; todayMatchups = {}; todaysRoster = []; draftRoomProj = {}; playerStatus = {};
     fetchTodaysTeams(draft.sport).then(() => renderRoom());
-    // refresh roster + projections every 2 minutes so probable pitchers and injury status stay current
+    // refresh roster + projections every 60s so started games, probable pitchers
+    // and injury status stay current (server caches ESPN, so this is cheap)
     clearInterval(_rosterRefreshT);
     _rosterRefreshT = setInterval(() => {
       fetchTodaysTeams(draft.sport).then(() => {
         if ($("scrRoom").classList.contains("on")) renderRoom();
       });
-    }, 2 * 60 * 1000);
+    }, 60 * 1000);
   }
   const isCountdown = draft.status === "lobby" && !!draft.startingAt;
   // only friends-only host can cancel an active room
@@ -1919,7 +1920,12 @@ $("pool").addEventListener("click", async (e) => {
     if (draft.local) { localPick(name); return; }
     const pInfo = PLAYERS.find((x) => x.n === name) || todaysRoster.find((x) => x.n === name) || {};
     try { draft = await api(`/api/draft/${draft.code}/pick`, { userId: me.id, player: name, pos: pInfo.pos, sp: pInfo.sp, tm: pInfo.tm }); routeDraft(); }
-    catch (err) { toast(err?.message || "Pick failed — try again"); btn.disabled = false; }
+    catch (err) {
+      toast(err?.message || "Pick failed — try again");
+      btn.disabled = false;
+      // server said no (started game / not playing) — pull the fresh pool right away
+      fetchTodaysTeams(draft.sport).then(() => { if ($("scrRoom").classList.contains("on")) renderRoom(); });
+    }
     return;
   }
   // tap on row (not button) → player detail popup
