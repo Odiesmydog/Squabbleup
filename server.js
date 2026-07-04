@@ -49,6 +49,8 @@ async function initDb() {
       PRIMARY KEY (day, sport, player)
     );
     ALTER TABLE player_scores ADD COLUMN IF NOT EXISTS first_scored_at TIMESTAMPTZ DEFAULT now();
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS premium BOOLEAN NOT NULL DEFAULT false;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS squabbles_used INT NOT NULL DEFAULT 0;
     CREATE TABLE IF NOT EXISTS invites (
       id BIGSERIAL PRIMARY KEY,
       draft_code TEXT NOT NULL, to_user UUID NOT NULL,
@@ -78,6 +80,16 @@ async function initDb() {
 }
 
 const code6 = () => crypto.randomBytes(4).toString("base64").replace(/[^A-Z0-9]/gi, "").slice(0, 6).toUpperCase().padEnd(6, "X");
+
+// ---------------- premium / free limits ----------------
+const FREE_SQUABBLE_LIMIT = 3; // lifetime: creates + lobby joins combined
+const PREMIUM_PRODUCT_ID = process.env.PREMIUM_PRODUCT_ID || "com.squabbleup.premium";
+const FREE_LIMIT_MSG = `Free limit reached — you've used all ${FREE_SQUABBLE_LIMIT} free squabbles. Upgrade to Premium for unlimited squabbles!`;
+
+// Counts a squabble against a free user's lifetime allowance.
+async function useSquabble(userId) {
+  await pool.query("UPDATE users SET squabbles_used = squabbles_used + 1 WHERE id=$1", [userId]);
+}
 
 // ---------------- snake helpers ----------------
 const pickerIndex = (s) => {
@@ -320,9 +332,12 @@ app.get("/api/me/:id", ah(async (req, res) => {
   res.json({ user: u, friends: friendRes.rows, invites: inviteRes.rows, drafts });
 }));
 
-// add friend by friendcode (mutual)
+// add friend by friendcode (mutual) — Premium feature
 app.post("/api/friends/add", ah(async (req, res) => {
   const { id, code } = req.body;
+  const u = (await pool.query("SELECT premium FROM users WHERE id=$1", [id])).rows[0];
+  if (!u) return res.status(404).json({ error: "register first" });
+  if (!u.premium) return res.status(403).json({ error: "The friends list is a Premium feature", limit: true });
   const f = (await pool.query("SELECT id, name, av, img, friendcode FROM users WHERE friendcode=$1", [String(code || "").toUpperCase()])).rows[0];
   if (!f) return res.status(404).json({ error: "No player with that code" });
   if (f.id === id) return res.status(400).json({ error: "That's your own code" });
@@ -343,11 +358,75 @@ app.post("/api/user/friendcode", ah(async (req, res) => {
   res.json({ friendcode: nc });
 }));
 
+// ---------------- premium purchase ----------------
+// Verify an Apple In-App Purchase receipt and unlock premium.
+// The iOS app sends the base64 appStoreReceipt after StoreKit approves the purchase.
+// Set APPLE_SHARED_SECRET in Render env (App Store Connect → App → In-App Purchases → App-Specific Shared Secret).
+async function verifyAppleReceipt(receiptB64) {
+  const body = JSON.stringify({
+    "receipt-data": receiptB64,
+    password: process.env.APPLE_SHARED_SECRET || "",
+    "exclude-old-transactions": true,
+  });
+  const call = async (url) => {
+    const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body });
+    return r.json();
+  };
+  let data = await call("https://buy.itunes.apple.com/verifyReceipt");
+  if (data.status === 21007) data = await call("https://sandbox.itunes.apple.com/verifyReceipt"); // TestFlight/sandbox receipt
+  if (data.status !== 0) return { ok: false, status: data.status };
+  const txs = [...(data.latest_receipt_info || []), ...(data.receipt?.in_app || [])];
+  const owned = txs.some((t) => t.product_id === PREMIUM_PRODUCT_ID);
+  return { ok: owned, status: 0 };
+}
+
+app.post("/api/premium/apple-verify", ah(async (req, res) => {
+  const { userId, receipt } = req.body;
+  if (!userId || !receipt) return res.status(400).json({ error: "Missing receipt" });
+  const u = (await pool.query("SELECT id FROM users WHERE id=$1", [userId])).rows[0];
+  if (!u) return res.status(404).json({ error: "register first" });
+  const v = await verifyAppleReceipt(String(receipt));
+  if (!v.ok) return res.status(400).json({ error: "Purchase could not be verified (status " + v.status + ")" });
+  const r = await pool.query("UPDATE users SET premium=true WHERE id=$1 RETURNING *", [userId]);
+  res.json({ ok: true, user: r.rows[0] });
+}));
+
+// Promo/manual unlock — for web users and your own testing before IAP is live.
+// Set PREMIUM_PROMO_CODE in Render env; leave unset to disable entirely.
+app.post("/api/premium/redeem", ah(async (req, res) => {
+  const { userId, code } = req.body;
+  const promo = process.env.PREMIUM_PROMO_CODE;
+  if (!promo) return res.status(400).json({ error: "Promo codes aren't enabled" });
+  if (String(code || "").trim().toUpperCase() !== promo.toUpperCase()) return res.status(400).json({ error: "Invalid code" });
+  const r = await pool.query("UPDATE users SET premium=true WHERE id=$1 RETURNING *", [userId]);
+  if (!r.rows[0]) return res.status(404).json({ error: "register first" });
+  res.json({ ok: true, user: r.rows[0] });
+}));
+
+// Account deletion — required by App Store guideline 5.1.1(v) for apps with accounts.
+// Removes the user and their personal data; their name/avatar stays on finished draft
+// boards (like a forum post) but is no longer linked to an account.
+app.post("/api/account/delete", ah(async (req, res) => {
+  const { userId } = req.body;
+  const u = (await pool.query("SELECT id FROM users WHERE id=$1", [userId])).rows[0];
+  if (!u) return res.status(404).json({ error: "Account not found" });
+  await pool.query("DELETE FROM friendships WHERE a=$1 OR b=$1", [userId]);
+  await pool.query("DELETE FROM push_subscriptions WHERE user_id=$1", [userId]);
+  await pool.query("DELETE FROM invites WHERE to_user=$1", [userId]);
+  await pool.query("UPDATE drafts SET participants = array_remove(participants, $1)", [userId]);
+  await pool.query("DELETE FROM users WHERE id=$1", [userId]);
+  res.json({ ok: true });
+}));
+
 // create draft (lobby)
 app.post("/api/draft/create", ah(async (req, res) => {
   const { hostId, sport, rounds, name, handshake, public: isPublic } = req.body;
   const u = (await pool.query("SELECT * FROM users WHERE id=$1", [hostId])).rows[0];
   if (!u) return res.status(404).json({ error: "register first" });
+  if (!u.premium && u.squabbles_used >= FREE_SQUABBLE_LIMIT)
+    return res.status(403).json({ error: FREE_LIMIT_MSG, limit: true });
+  if (handshake?.stake && !u.premium)
+    return res.status(403).json({ error: "Handshake mode is a Premium feature", limit: true });
   let code;
   for (;;) { code = code6(); const c = await pool.query("SELECT 1 FROM drafts WHERE code=$1", [code]); if (!c.rows.length) break; }
   const { pickTimer: rawTimer } = req.body;
@@ -365,6 +444,7 @@ app.post("/api/draft/create", ah(async (req, res) => {
     handshake: handshake?.stake ? { stake: String(handshake.stake).slice(0, 60), agreed: [] } : null,
   };
   await pool.query("INSERT INTO drafts (code, state, participants) VALUES ($1,$2,$3)", [code, state, [hostId]]);
+  await useSquabble(hostId);
   pool.query("UPDATE stats SET val = val + 1 WHERE key='drafts_created'").catch(() => {});
   res.json({ code });
 }));
@@ -486,11 +566,17 @@ app.post("/api/draft/:code/join", ah(async (req, res) => {
     if (!st.seats.some((s) => s.userId === userId)) {
       if (st.status !== "lobby") { await client.query("ROLLBACK"); return res.status(400).json({ error: "Draft already started" }); }
       if (st.seats.length >= 8) { await client.query("ROLLBACK"); return res.status(400).json({ error: "Draft is full (8 max)" }); }
+      // taking a NEW seat counts against the free allowance (rejoining above doesn't)
+      if (!u.premium && u.squabbles_used >= FREE_SQUABBLE_LIMIT) {
+        await client.query("ROLLBACK");
+        return res.status(403).json({ error: FREE_LIMIT_MSG, limit: true });
+      }
       const nameTaken = st.seats.some((s) => s.name.trim().toLowerCase() === u.name.trim().toLowerCase());
       if (nameTaken) { await client.query("ROLLBACK"); return res.status(409).json({ error: `The name "${u.name}" is already taken in this draft — update your profile name and try again` }); }
       st.seats.push({ userId, name: u.name, av: u.av, img: u.img, bot: false, roster: [] });
       await client.query("UPDATE drafts SET state=$1, participants=array_append(participants,$2), updated=now() WHERE code=$3", [st, userId, code]);
       await client.query("DELETE FROM invites WHERE draft_code=$1 AND to_user=$2", [code, userId]);
+      await client.query("UPDATE users SET squabbles_used = squabbles_used + 1 WHERE id=$1", [userId]);
     }
     await client.query("COMMIT");
   } catch (e) { await client.query("ROLLBACK"); throw e; }
