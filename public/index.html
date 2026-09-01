@@ -306,7 +306,6 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
     </div>
     <button class="big" id="newDraft" style="margin-bottom:10px">+ New online Squabble</button>
     <button class="big flat" id="newLocal">📱 Pass & play (one phone)</button>
-    <div id="planLine" style="display:none;text-align:center;font-size:12.5px;color:var(--dim);margin-top:12px;cursor:pointer"></div>
     <div class="stepLbl" style="margin-top:18px">🌐 Open Squabbles</div>
     <p class="sub" style="margin-top:-6px;margin-bottom:10px">Public rooms — walk right in.</p>
     <div id="pubRooms"></div>
@@ -459,8 +458,6 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
       </div>
     </div>
     <button class="big flat" id="shareCode" style="margin-bottom:14px">📤 Share my code</button>
-    <div class="stepLbl">Membership</div>
-    <div id="memberBox" style="margin-bottom:14px"></div>
     <div class="stepLbl">Add a friend</div>
     <div class="addRow" id="friendAddRow">
       <input id="codeIn" placeholder="Enter their code" maxlength="12" style="text-transform:uppercase" />
@@ -512,9 +509,6 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
       <div id="hsOpen">
         <input id="hsStakeIn" maxlength="40" placeholder='e.g. "loser buys pizza" or "winner picks the next movie"' style="width:100%;box-sizing:border-box" />
         <p class="note" style="margin-top:5px">Everyone must shake on it before the draft can start.</p>
-      </div>
-      <div id="hsLocked" style="display:none">
-        <button class="big flat" id="hsUnlockBtn" style="color:var(--gold)">🔒 Premium feature — tap to unlock</button>
       </div>
     </div>
     <div class="stepLbl">4 · Pick timer <span style="color:var(--dim);font-size:10px;font-weight:600;text-transform:none;letter-spacing:0">(optional — auto-drafts when time runs out)</span></div>
@@ -742,30 +736,6 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
   </div>
 </div>
 
-<!-- premium upgrade modal -->
-<div class="modal" id="premModal">
-  <div class="sheet" style="position:relative">
-    <button class="cardX" id="premClose" style="position:absolute;top:10px;right:10px">✕</button>
-    <h2>⭐ SquabbleUP Premium</h2>
-    <p class="sub" id="premStatus" style="margin-top:2px"></p>
-    <div class="bCol" style="cursor:default;margin-bottom:12px">
-      <div class="bPick"><span>♾️ <strong>Unlimited squabbles</strong> — create &amp; join as many as you want</span></div>
-      <div class="bPick"><span>👥 <strong>Friends list</strong> — add friends and invite them straight into rooms</span></div>
-      <div class="bPick"><span>🤝 <strong>Handshake mode</strong> — put friendly stakes on any draft</span></div>
-    </div>
-    <button class="big gold" id="premBuyBtn">Unlock Premium — $1</button>
-    <button class="big flat" id="premRestoreBtn" style="margin-top:8px;display:none">Restore purchase</button>
-    <div id="premWebNote" style="display:none">
-      <div class="lbl" style="margin-top:12px">Have a promo code?</div>
-      <div class="addRow">
-        <input id="premCodeIn" placeholder="Code" style="text-transform:uppercase" />
-        <button class="mini green" id="premRedeemBtn">Redeem</button>
-      </div>
-    </div>
-    <p class="note" style="margin-top:10px">One-time purchase · unlocks this account forever</p>
-  </div>
-</div>
-
 <div class="toast" id="toast"></div>
 
 <script src="players-data.js?v=2"></script>
@@ -782,7 +752,6 @@ async function api(path, body) {
   const j = await r.json().catch(() => ({}));
   if (!r.ok) {
     toast(j.error || "Something went wrong");
-    if (j.limit) setTimeout(openPremium, 600); // hit a premium gate — show the upgrade sheet
     throw new Error(j.error || r.status);
   }
   return j;
@@ -863,7 +832,7 @@ async function gotoTab(t) {
   if (homeData) { renderTabs(); if (t === "profile") renderProfileTab(); }
   try {
     homeData = await api("/api/me/" + me.id);
-    // keep local identity in sync with server truth (premium, squabbles_used, name edits elsewhere)
+    // keep local identity in sync with server truth (name edits elsewhere, etc)
     if (homeData?.user) { me = { ...me, ...homeData.user }; localStorage.setItem("squp_me", JSON.stringify(me)); }
     renderTabs();
     if (t === "profile") renderProfileTab();
@@ -882,9 +851,7 @@ $("newDraft").addEventListener("click", () => {
   document.querySelectorAll("#visGrid .choice").forEach((c, i) => c.classList.toggle("sel", i === 0));
   document.querySelectorAll("#timerGrid .choice").forEach((c, i) => c.classList.toggle("sel", i === 0));
   $("hsSection").style.display = "";
-  $("hsOpen").style.display = isPremium() ? "" : "none";
-  $("hsLocked").style.display = isPremium() ? "none" : "";
-  if (!isPremium()) $("hsStakeIn").value = "";
+  $("hsStakeIn").value = "";
   $("createNote").style.display = ""; $("publicNote").style.display = "none";
   show("scrNew");
 });
@@ -1021,7 +988,6 @@ function localCardHtml(d, i, showClose = false) {
 function renderTabs() {
   const { invites, drafts } = homeData;
   const now = Date.now();
-  renderPlanLine();
 
   // home tab: invites
   $("inviteList").innerHTML = invites.map((i) => `
@@ -1077,17 +1043,9 @@ function renderProfileTab() {
   $("profAvBig").innerHTML = me.img ? `<img src="${esc(me.img)}" alt="" onerror="this.remove()" />` : me.av;
   $("myCode").textContent = me.friendcode;
   $("friendErr").textContent = "";
-  $("memberBox").innerHTML = isPremium()
-    ? `<div class="fRow"><span style="font-size:22px">⭐</span><span class="fn">Premium</span><span class="tag" style="color:var(--gold)">UNLIMITED</span></div>`
-    : `<div class="fRow" id="memberUpsell" style="cursor:pointer"><span style="font-size:22px">🆓</span><span class="fn">Free plan · ${Math.max(0, FREE_LIMIT - usedSquabbles())} of ${FREE_LIMIT} squabbles left</span><button class="mini green">⭐ Upgrade</button></div>`;
-  $("memberUpsell")?.addEventListener("click", openPremium);
-  $("friendAddRow").style.display = isPremium() ? "flex" : "none";
-  $("friendsList").innerHTML = !isPremium()
-    ? `<div class="emptyBox" id="friendsLocked" style="cursor:pointer"><div class="e">🔒</div>The friends list is a <span style="color:var(--gold)">Premium</span> feature.<br />Tap to unlock — add friends &amp; invite them to drafts.</div>`
-    : homeData.friends.length
-      ? homeData.friends.map((f) => `<div class="fRow">${avHtml(f)}<span class="fn">${esc(f.name)}</span><span class="tag">${f.friendcode}</span></div>`).join("")
-      : `<div class="emptyBox"><div class="e">👥</div>No friends yet.<br />Swap codes and build the crew.</div>`;
-  $("friendsLocked")?.addEventListener("click", openPremium);
+  $("friendsList").innerHTML = homeData.friends.length
+    ? homeData.friends.map((f) => `<div class="fRow">${avHtml(f)}<span class="fn">${esc(f.name)}</span><span class="tag">${f.friendcode}</span></div>`).join("")
+    : `<div class="emptyBox"><div class="e">👥</div>No friends yet.<br />Swap codes and build the crew.</div>`;
 }
 $("editProfile").addEventListener("click", () => openProfile(false));
 
@@ -1170,103 +1128,9 @@ async function shareText(text, url) {
   catch { toast(text); }
 }
 
-// ================= premium =================
-const PREMIUM_PRODUCT_ID = "com.squabbleup.premium";
-const FREE_LIMIT = 3;
-const isPremium = () => !!me?.premium;
-const usedSquabbles = () => me?.squabbles_used ?? 0;
-const isNativeApp = () => !!(window.Capacitor?.isNativePlatform?.());
-
-function openPremium() {
-  if (isPremium()) { toast("You're already Premium ⭐"); return; }
-  const left = Math.max(0, FREE_LIMIT - usedSquabbles());
-  $("premStatus").textContent = left > 0
-    ? `Free plan — ${left} of ${FREE_LIMIT} free squabbles left`
-    : "You've used all your free squabbles";
-  // Apple requires a Restore button for non-consumables; promo box is web-only (IAP is the
-  // only allowed purchase path inside the iOS app)
-  $("premRestoreBtn").style.display = isNativeApp() ? "block" : "none";
-  $("premWebNote").style.display = isNativeApp() ? "none" : "block";
-  $("premModal").classList.add("on");
-}
-
-function _setPremium(user) {
-  me = { ...me, ...user };
-  localStorage.setItem("squp_me", JSON.stringify(me));
-  if (homeData?.user) homeData.user = { ...homeData.user, ...user };
-  $("premModal").classList.remove("on");
-  toast("Premium unlocked! ⭐ Squabble away!");
-  if (homeData) renderTabs();
-  if (curTab === "profile") renderProfileTab();
-}
-
-// --- Apple In-App Purchase (cordova-plugin-purchase, bundled in the Capacitor iOS shell) ---
-let _storeReady = false;
-async function _initStore() {
-  const { store, ProductType, Platform } = window.CdvPurchase;
-  if (_storeReady) return store;
-  store.register([{ id: PREMIUM_PRODUCT_ID, type: ProductType.NON_CONSUMABLE, platform: Platform.APPLE_APPSTORE }]);
-  store.when().approved(async (tx) => {
-    try {
-      const receipt = tx.parentReceipt?.nativeData?.appStoreReceipt;
-      if (receipt) {
-        const { user } = await api("/api/premium/apple-verify", { userId: me.id, receipt });
-        _setPremium(user);
-      }
-      tx.finish();
-    } catch (e) { console.warn("IAP verify failed", e); }
-  });
-  await store.initialize([Platform.APPLE_APPSTORE]);
-  _storeReady = true;
-  return store;
-}
-async function buyPremium() {
-  if (window.CdvPurchase) {
-    try {
-      const store = await _initStore();
-      const offer = store.get(PREMIUM_PRODUCT_ID)?.getOffer();
-      if (!offer) { toast("App Store not reachable — try again shortly"); return; }
-      await offer.order();
-    } catch { toast("Purchase didn't complete"); }
-  } else {
-    toast("Purchasing is available in the iOS app");
-    $("premWebNote").style.display = "block";
-  }
-}
-async function restorePremium() {
-  if (!window.CdvPurchase) return;
-  try { const store = await _initStore(); await store.restorePurchases(); toast("Checking your purchases…"); }
-  catch { toast("Restore failed — try again"); }
-}
-
-$("premBuyBtn").addEventListener("click", buyPremium);
-$("premRestoreBtn").addEventListener("click", restorePremium);
-$("premClose").addEventListener("click", () => $("premModal").classList.remove("on"));
-$("premModal").addEventListener("click", (e) => { if (e.target === $("premModal")) $("premModal").classList.remove("on"); });
-$("premRedeemBtn").addEventListener("click", async () => {
-  const code = $("premCodeIn").value.trim();
-  if (!code) return;
-  try { const { user } = await api("/api/premium/redeem", { userId: me.id, code }); _setPremium(user); }
-  catch {}
-});
-$("planLine").addEventListener("click", openPremium);
-$("hsUnlockBtn").addEventListener("click", openPremium);
-
-function renderPlanLine() {
-  const el = $("planLine");
-  if (!me?.id) { el.style.display = "none"; return; }
-  el.style.display = "block";
-  if (isPremium()) { el.innerHTML = `⭐ <span style="color:var(--gold)">Premium</span> — unlimited squabbles`; el.style.cursor = "default"; return; }
-  const left = Math.max(0, FREE_LIMIT - usedSquabbles());
-  el.style.cursor = "pointer";
-  el.innerHTML = left > 0
-    ? `Free plan · <strong>${left} of ${FREE_LIMIT}</strong> squabbles left · <span style="color:var(--gold)">⭐ Go Premium</span>`
-    : `Free squabbles used up · <span style="color:var(--gold)">⭐ Go Premium for unlimited</span>`;
-}
-
 // account deletion (App Store guideline 5.1.1(v))
 $("deleteAccountBtn").addEventListener("click", async () => {
-  if (!confirm("Delete your account? Your profile, friends and premium unlock will be permanently removed.")) return;
+  if (!confirm("Delete your account? Your profile and friends will be permanently removed.")) return;
   if (!confirm("This cannot be undone. Really delete everything?")) return;
   try {
     await api("/api/account/delete", { userId: me.id });
@@ -1672,7 +1536,6 @@ function _runSlotAnim(names) {
 
 // invite friends modal
 $("lobbyInviteFriends").addEventListener("click", async () => {
-  if (!isPremium()) { openPremium(); return; }
   const meData = await api("/api/me/" + me.id);
   const inRoom = new Set(draft.seats.map((s) => s.userId));
   $("invList").innerHTML = meData.friends.length
