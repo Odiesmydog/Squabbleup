@@ -530,6 +530,89 @@ async function _fetchSchedule(sport) {
   } catch { return { players: null, matchups: {}, roster: [] }; }
 }
 
+// Aggregates a whole week's games for weekly-cadence sports (NFL, CFB) so a host can build
+// one draft spanning multiple game days — Wednesday's opener + Thursday's game + Sunday's
+// full slate, all in the same squabble. Team abbreviations stay unique across a single
+// week for these two sports (a team plays once), which daily-cadence sports (MLB/NBA/NHL)
+// don't guarantee — a "week" of MLB has each team playing ~6 times, which would make the
+// existing team-abbr-keyed gameFilter ambiguous about which specific game was meant. Not
+// offered there for that reason.
+//
+// Bounding "this week": rather than a fixed day offset from *today* (which would cross into
+// next week's games whenever today falls late in the current week — e.g. Monday, the last
+// day of an NFL week, is only 3 days from the *next* week's Thursday opener), this bounds
+// the window to 6 days from whichever day *first* turns up games. That correctly spans a
+// single Wed/Thu-through-Monday week regardless of where "today" falls within it, and stays
+// short of the ~7-day gap to the following week's opener.
+const WEEK_SLATE_SPORTS = new Set(["NFL", "CFB"]);
+async function weekSchedule(sport) {
+  if (!WEEK_SLATE_SPORTS.has(sport)) return null;
+  const pair = LEAGUES[sport];
+  if (!pair) return null;
+  const knownPos = new Map(PLAYERS.map((p) => [p.n, p.pos]));
+  const names = new Set(); const matchups = {}; const roster = [];
+  const days = [];
+  let firstGameDayIdx = null;
+  for (let i = 0; i <= 13; i++) {
+    if (firstGameDayIdx !== null && i - firstGameDayIdx > 6) break;
+    const d = etDateObj(i);
+    let sb;
+    try { sb = await jget(`https://site.api.espn.com/apis/site/v2/sports/${pair[0]}/${pair[1]}/scoreboard?dates=${dstr(d)}`); }
+    catch { continue; }
+    if (!sb.events?.length) continue;
+    const dayGames = [];
+    for (const ev of sb.events || []) {
+      if (ev.status?.type?.state === "post") continue;
+      const livelock = ev.status?.type?.state === "in";
+      const comps = ev.competitions?.[0]?.competitors || [];
+      const away = comps.find((c) => c.homeAway === "away");
+      const home = comps.find((c) => c.homeAway === "home");
+      const awayAbbr = normTeamAbbr(away?.team?.abbreviation);
+      const homeAbbr = normTeamAbbr(home?.team?.abbreviation);
+      const label = away && home ? `${awayAbbr} @ ${homeAbbr}` : comps.map((c) => normTeamAbbr(c.team?.abbreviation)).filter(Boolean).join(" vs ");
+      const gameTeams = [];
+      for (const comp of comps) {
+        const abbr = normTeamAbbr(comp.team?.abbreviation);
+        const teamId = comp.team?.id;
+        if (!abbr) continue;
+        matchups[abbr] = label;
+        gameTeams.push(abbr);
+        let added = false;
+        if (teamId) {
+          try {
+            const r = await jget(`https://site.api.espn.com/apis/site/v2/sports/${pair[0]}/${pair[1]}/teams/${teamId}/roster`);
+            const ROSTER_STATUS_EXCLUDE = new Set(["injuredreserveorout", "suspended", "practicesquad"]);
+            const rawAthletes = r.athletes || [];
+            const athletes = rawAthletes
+              .filter((a) => !a.items?.length || !ROSTER_STATUS_EXCLUDE.has(String(a.position || "").toLowerCase()))
+              .flatMap((a) => a.items?.length ? a.items : (a.displayName ? [a] : []));
+            if (athletes.length > 0) added = true;
+            for (const a of athletes) {
+              if (a.displayName && !names.has(a.displayName)) {
+                const pos = knownPos.get(a.displayName) || a.position?.abbreviation || "?";
+                names.add(a.displayName);
+                roster.push({ n: a.displayName, pos, tm: abbr, sp: sport, ...(livelock ? { livelock: true } : {}) });
+              }
+            }
+          } catch {}
+        }
+        if (!added) PLAYERS.filter((p) => p.sp === sport && p.tm === abbr)
+          .forEach((p) => { if (!names.has(p.n)) { names.add(p.n); roster.push({ ...p, ...(livelock ? { livelock: true } : {}) }); } });
+      }
+      if (gameTeams.length >= 2) dayGames.push({ label, teams: gameTeams });
+    }
+    if (dayGames.length) {
+      if (firstGameDayIdx === null) firstGameDayIdx = i;
+      days.push({
+        date: dstr(d),
+        label: d.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric", timeZone: "America/New_York" }),
+        games: dayGames,
+      });
+    }
+  }
+  return { days, matchups, roster, players: names.size > 0 ? names : null };
+}
+
 async function todaysSchedule(sport) {
   const hit = _schedCache.get(sport);
   const ttl = _SCHED_TTL_SHORT[sport] || _SCHED_TTL;
@@ -1035,4 +1118,4 @@ async function sleeperEnrich(sport, playerNames) {
 // (see the UFC/TEN branches of _fetchSchedule). Keep this in sync with the client's copy.
 const INDIVIDUAL_SPORTS = new Set(["UFC", "TEN"]);
 
-module.exports = { pollAll, draftScores, draftScoreDetail, projectedScores, sleeperEnrich, seedDemo, scoreSummary, todaysTeams, todaysPoolPlayers, todaysSchedule, nextGameDay, RULES, FAMILY, INDIVIDUAL_SPORTS, golfPoints, matchPool, buildPoolIndex, norm };
+module.exports = { pollAll, draftScores, draftScoreDetail, projectedScores, sleeperEnrich, seedDemo, scoreSummary, todaysTeams, todaysPoolPlayers, todaysSchedule, weekSchedule, WEEK_SLATE_SPORTS, nextGameDay, RULES, FAMILY, INDIVIDUAL_SPORTS, golfPoints, matchPool, buildPoolIndex, norm };

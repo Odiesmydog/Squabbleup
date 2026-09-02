@@ -232,6 +232,30 @@ async function notifyDraftStart(st, code) {
 const PLAYERS = require("./public/players-data.js");
 const scoring = require("./scoring.js");
 
+// Resolves a sport's full schedule, preferring the week-spanning view for NFL/CFB so a
+// multi-day draft (built from the wizard's week picker) sees every game it could have been
+// scoped to, not just "today's" one. No gameFilter applied — see resolveDraftPool for that.
+async function scheduleFor(sport) {
+  return scoring.WEEK_SLATE_SPORTS.has(sport)
+    ? await scoring.weekSchedule(sport).catch(() => null)
+    : await scoring.todaysSchedule(sport).catch(() => null);
+}
+// scheduleFor(), narrowed to a draft's optional gameFilter. Used by bot auto-pick and
+// pick-timer-expiry auto-pick, where there's no user to show a specific error to — they
+// just need a correctly-scoped pool. Pick validation calls scheduleFor() directly instead
+// so it can report *why* a pick failed ("wasn't included in this draft" vs "isn't playing").
+async function resolveDraftPool(sport, gameFilter) {
+  const sched = await scheduleFor(sport);
+  if (!sched) return { players: null, roster: [] };
+  let roster = sched.roster || [];
+  if (gameFilter) {
+    const key = scoring.INDIVIDUAL_SPORTS.has(sport) ? "n" : "tm";
+    roster = roster.filter((p) => gameFilter.includes(p[key]));
+  }
+  const players = gameFilter ? new Set(roster.map((p) => p.n)) : sched.players;
+  return { players, roster };
+}
+
 // Rank-based fallback projections for sports without Sleeper coverage.
 // Uses each player's static rank to estimate a realistic fantasy point range.
 const RANK_PROJ_RANGE = {
@@ -257,7 +281,7 @@ function scheduleBot(code, s) {
     const cur = st.seats[pickerIndex(st)];
     if (!cur.bot) return;
     const taken = new Set(st.picks.map((p) => p.player));
-    const { players: todayNames, roster: todayRoster } = await scoring.todaysSchedule(st.sport).catch(() => ({ players: null, roster: [] }));
+    const { players: todayNames, roster: todayRoster } = await resolveDraftPool(st.sport, st.gameFilter);
     const rankMap = new Map(PLAYERS.map((p) => [p.n, p.r]));
     const playerPool = todayRoster.length > 0 ? todayRoster : PLAYERS.filter((p) => st.sport === "ALL" || p.sp === st.sport);
     const avail = playerPool
@@ -768,6 +792,16 @@ app.get("/api/schedule/:sport", ah(async (req, res) => {
   res.json({ players: players ? [...players] : null, matchups, roster: roster || [], nextDay, futureDate: futureDate || null });
 }));
 
+// whole week's games for weekly-cadence sports (NFL/CFB) — lets a host build one draft
+// spanning multiple game days instead of just the next single day. See scoring.js for why
+// this isn't offered for daily-cadence sports (MLB/NBA/NHL).
+app.get("/api/schedule/:sport/week", ah(async (req, res) => {
+  const sport = req.params.sport.toUpperCase();
+  const week = await scoring.weekSchedule(sport);
+  if (!week) return res.status(400).json({ error: "Week view isn't available for this sport" });
+  res.json({ days: week.days, matchups: week.matchups, roster: week.roster, players: week.players ? [...week.players] : null });
+}));
+
 app.get("/api/projected/:sport", ah(async (req, res) => {
   const sport = req.params.sport.toUpperCase();
   // use today's live roster so projections cover every draftable player, not just our static list
@@ -844,7 +878,7 @@ app.post("/api/draft/:code/pick", ah(async (req, res) => {
   if (st.picks.some((p) => p.player === player)) return res.status(400).json({ error: "Already drafted" });
   // Server-side eligibility check — clients hide ineligible players, but their
   // schedule can be a couple of minutes stale (or hostile). Never trust it.
-  const sched = await scoring.todaysSchedule(st.sport).catch(() => null);
+  const sched = await scheduleFor(st.sport);
   if (sched?.players) {
     if (!sched.players.has(player))
       return res.status(400).json({ error: `${player} isn't playing today — the list just refreshed` });
@@ -1011,7 +1045,7 @@ initDb().then(() => {
       const seat = st.seats[pickerIndex(st)];
       if (seat.bot) return; // bots have their own scheduler
       const taken = new Set(st.picks.map((p) => p.player));
-      const { players: todayNames, roster: todayRoster } = await scoring.todaysSchedule(st.sport).catch(() => ({ players: null, roster: [] }));
+      const { players: todayNames, roster: todayRoster } = await resolveDraftPool(st.sport, st.gameFilter);
       const playerPool = todayRoster.length > 0 ? todayRoster : PLAYERS.filter((p) => st.sport === "ALL" || p.sp === st.sport);
       const rankMap = new Map(PLAYERS.map((p) => [p.n, p.r]));
       const avail = playerPool

@@ -104,7 +104,12 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
 .gameCheck { width: 20px; height: 20px; border-radius: 6px; border: 2px solid var(--line); flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 800; color: transparent; }
 .gameRow.sel .gameCheck { background: var(--green); border-color: var(--green); color: var(--ink); }
 .gameLabel { flex: 1; font-weight: 700; font-size: 14px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.gameToggleAll { font-size: 12px; font-weight: 700; color: var(--purple); flex-shrink: 0; padding: 2px 4px; }
+.gameDayGroup { margin-bottom: 14px; }
+.gameDayGroup:last-child { margin-bottom: 0; }
+.gameDayHead { display: flex; align-items: center; justify-content: space-between; padding: 4px 2px 8px; }
+.gameDayHead span:first-child { font-family: var(--display); font-size: 13px; font-weight: 700; color: var(--text); }
+.gameDayToggle { font-size: 12px; font-weight: 700; color: var(--purple); flex-shrink: 0; padding: 2px 4px; }
+.gameDayToggle:active { opacity: .6; }
 
 .codeBox { background: var(--raised); border-radius: var(--r); text-align: center; padding: 14px; margin-bottom: 12px; box-shadow: 0 4px 0 #150E1F; }
 .codeBox .c { font-family: var(--display); font-weight: 700; font-size: 34px; letter-spacing: 7px; color: var(--purple); }
@@ -248,8 +253,14 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
 .muList { display: flex; flex-direction: column; gap: 10px; margin-bottom: 4px; }
 .muTeam { background: var(--panel); border-radius: var(--r); overflow: hidden; }
 .muTeam.muWin { box-shadow: inset 0 0 0 1px #22E88F, 0 0 18px -6px #22E88F99; }
-.muTeamHead { display: flex; align-items: center; gap: 10px; padding: 12px; background: var(--raised); }
+.muTeamHead { display: flex; align-items: center; gap: 10px; padding: 12px; background: var(--raised); cursor: pointer; }
 .muTeam.muWin .muTeamHead { background: #0C2318; }
+.muChevron { font-size: 12px; color: var(--dim); flex-shrink: 0; transition: transform .15s; }
+.muChevron.muChevCollapsed { transform: rotate(-90deg); }
+.muTopNote { display: flex; align-items: center; justify-content: space-between; gap: 10px; text-align: left; margin: 0 0 10px; }
+.muTopNote span { flex: 1; }
+.muCollapseAll { font-size: 11.5px; font-weight: 700; color: var(--purple); flex-shrink: 0; background: none; border: none; cursor: pointer; font-family: inherit; white-space: nowrap; }
+.muCollapseAll:active { opacity: .6; }
 .muRank { font-size: 15px; font-weight: 800; width: 24px; text-align: center; color: var(--dim); flex-shrink: 0; }
 .muTeam.muWin .muRank { font-size: 18px; }
 .muTeamInfo { flex: 1; min-width: 0; }
@@ -1213,29 +1224,45 @@ const GAME_PICKER_SPORTS = new Set(["NFL", "CFB", "NBA", "CBB", "MLB", "NHL", "S
 // UFC/tennis have no shared "team" to group a game by — the picker keys their matchups by
 // each player's own name instead (see scoring.js), so the filter has to check p.n, not p.tm
 const INDIVIDUAL_SPORTS = new Set(["UFC", "TEN"]);
+// NFL/CFB team abbreviations stay unique across a whole week (a team plays once), so these
+// two get a day-grouped week view instead of just "today or the next single game day" — see
+// scoring.js's weekSchedule() for why this isn't safe to offer for daily-cadence sports.
+const WEEK_SLATE_SPORTS = new Set(["NFL", "CFB"]);
 let wizGames = []; // [{label, teams: [abbr,...]}]
 let wizSelectedGames = new Set(); // indices into wizGames
+let wizDayGroups = []; // [{label, indices: [...into wizGames]}] — only set in week mode
 let _gameCheckSeq = 0;
 async function loadGamePicker() {
   const lbl = $("gameStepLbl"), hint = $("gameStepHint"), list = $("gameList");
   const sportAtCall = wizSport;
   if (!GAME_PICKER_SPORTS.has(sportAtCall)) {
     lbl.style.display = "none"; hint.style.display = "none"; list.style.display = "none";
-    wizGames = []; wizSelectedGames = new Set();
+    wizGames = []; wizSelectedGames = new Set(); wizDayGroups = [];
     return;
   }
   const seq = ++_gameCheckSeq;
+  const weekMode = WEEK_SLATE_SPORTS.has(sportAtCall);
   let sched;
-  try { sched = await api(`/api/schedule/${sportAtCall}`); }
+  try { sched = await api(weekMode ? `/api/schedule/${sportAtCall}/week` : `/api/schedule/${sportAtCall}`); }
   catch { sched = null; }
   if (seq !== _gameCheckSeq || wizSport !== sportAtCall) return; // sport changed while awaiting
-  // dedupe the team->label map into distinct games, each carrying its team abbrs
-  const byLabel = new Map();
-  for (const [tm, label] of Object.entries(sched?.matchups || {})) {
-    if (!byLabel.has(label)) byLabel.set(label, []);
-    byLabel.get(label).push(tm);
+
+  if (weekMode) {
+    wizGames = []; wizDayGroups = [];
+    for (const day of sched?.days || []) {
+      const indices = day.games.map((g) => wizGames.push({ label: g.label, teams: g.teams }) - 1);
+      wizDayGroups.push({ label: day.label, indices });
+    }
+  } else {
+    // dedupe the team->label map into distinct games, each carrying its team abbrs
+    const byLabel = new Map();
+    for (const [tm, label] of Object.entries(sched?.matchups || {})) {
+      if (!byLabel.has(label)) byLabel.set(label, []);
+      byLabel.get(label).push(tm);
+    }
+    wizGames = [...byLabel.entries()].map(([label, teams]) => ({ label, teams }));
+    wizDayGroups = [];
   }
-  wizGames = [...byLabel.entries()].map(([label, teams]) => ({ label, teams }));
   wizSelectedGames = new Set(wizGames.map((_, i) => i)); // default: everything included
   if (wizGames.length < 2) {
     lbl.style.display = "none"; hint.style.display = "none"; list.style.display = "none";
@@ -1245,13 +1272,43 @@ async function loadGamePicker() {
   renderGamePicker();
 }
 function renderGamePicker() {
-  $("gameList").innerHTML = wizGames.map((g, i) => `
-    <div class="gameRow${wizSelectedGames.has(i) ? " sel" : ""}" data-gi="${i}">
+  const row = (i) => `<div class="gameRow${wizSelectedGames.has(i) ? " sel" : ""}" data-gi="${i}">
       <span class="gameCheck">✓</span>
-      <span class="gameLabel">${esc(g.label)}</span>
-    </div>`).join("");
+      <span class="gameLabel">${esc(wizGames[i].label)}</span>
+    </div>`;
+  if (wizDayGroups.length) {
+    // grouped by day, each with its own select-all toggle — a full NFL week can be 16+
+    // games, and picking through that as one flat list would be its own kind of confusing
+    $("gameList").innerHTML = wizDayGroups.map((day, di) => {
+      const allSel = day.indices.every((i) => wizSelectedGames.has(i));
+      return `<div class="gameDayGroup">
+        <div class="gameDayHead">
+          <span>${esc(day.label)}</span>
+          <button type="button" class="gameDayToggle" data-day="${di}">${allSel ? "Clear day" : "Select day"}</button>
+        </div>
+        ${day.indices.map(row).join("")}
+      </div>`;
+    }).join("");
+  } else {
+    $("gameList").innerHTML = wizGames.map((_, i) => row(i)).join("");
+  }
 }
 $("gameList").addEventListener("click", (e) => {
+  const dayBtn = e.target.closest(".gameDayToggle");
+  if (dayBtn) {
+    const day = wizDayGroups[+dayBtn.getAttribute("data-day")];
+    const allSel = day.indices.every((i) => wizSelectedGames.has(i));
+    if (allSel) {
+      // don't allow clearing a day if it would leave zero games selected overall
+      const wouldRemain = [...wizSelectedGames].filter((i) => !day.indices.includes(i));
+      if (wouldRemain.length === 0) { toast("Pick at least one game"); return; }
+      day.indices.forEach((i) => wizSelectedGames.delete(i));
+    } else {
+      day.indices.forEach((i) => wizSelectedGames.add(i));
+    }
+    renderGamePicker();
+    return;
+  }
   const row = e.target.closest(".gameRow"); if (!row) return;
   const i = +row.getAttribute("data-gi");
   if (wizSelectedGames.has(i)) {
@@ -1318,16 +1375,22 @@ let todaysPlayers = null, nextGameDay = null, todayMatchups = {}, draftRoomProj 
 // Precomputed rank map — built once from static PLAYERS list
 const RANK_MAP = new Map(PLAYERS.map((p) => [p.n, p.r]));
 async function fetchTodaysTeams(sport) {
+  // NFL/CFB week-mode drafts (built via the wizard's day-grouped picker) need the whole
+  // week's roster, not just today's — otherwise a draft scoped to Sunday's games would show
+  // nobody once the room is actually open, since "today" alone wouldn't include them yet.
+  const weekMode = WEEK_SLATE_SPORTS.has(sport);
   try {
     const [sched, enriched] = await Promise.all([
-      api(`/api/schedule/${sport}`),
+      api(weekMode ? `/api/schedule/${sport}/week` : `/api/schedule/${sport}`),
       api(`/api/projected/${sport}`).catch(() => ({ proj: {}, status: {} })),
     ]);
     todaysPlayers = sched.players ? new Set(sched.players) : null;
-    nextGameDay = sched.nextDay || null;
+    // "no games today, here's the next day" banner doesn't apply to week-mode — the pool
+    // spans multiple days by design, that's not a fallback state needing an explanation
+    nextGameDay = weekMode ? null : (sched.nextDay || null);
+    scheduleFutureDate = weekMode ? null : (sched.futureDate || null);
     todayMatchups = sched.matchups || {};
     todaysRoster = sched.roster || [];
-    scheduleFutureDate = sched.futureDate || null;
     draftRoomProj = enriched.proj || {};
     playerStatus = enriched.status || {};
   } catch { todaysPlayers = null; nextGameDay = null; todayMatchups = {}; todaysRoster = []; scheduleFutureDate = null; draftRoomProj = {}; playerStatus = {}; }
@@ -1416,6 +1479,7 @@ function leaveDraft() {
   clearTimeout(_rndBannerT); _rndBannerT = null; _lastRound = 0;
   $("roundBanner").classList.remove("on");
   for (const k in vsSelection) delete vsSelection[k];
+  for (const k in muCollapsed) delete muCollapsed[k];
   // reset per-draft state so entering a new draft gets fresh data
   todaysPlayers = null; nextGameDay = null; todayMatchups = {}; todaysRoster = []; scheduleFutureDate = null;
   draftRoomProj = {}; playerStatus = {};
@@ -2048,6 +2112,7 @@ const MEDALS = ["🥇", "🥈", "🥉"];
 // Everyone's roster, visible at once — no picking who to compare first. Tap any player
 // to zoom into their box score. Ranking reuses seatTotals()'s deterministic order so this
 // can never disagree with the no-ties logic.
+const muCollapsed = {}; // targetId -> Set of collapsed seat indices
 function renderMatchup(targetId) {
   const rows = seatTotals();
   if (rows.length < 2) {
@@ -2055,6 +2120,7 @@ function renderMatchup(targetId) {
     return;
   }
   const started = rows.some((r) => r.pts !== 0);
+  const collapsed = muCollapsed[targetId] || (muCollapsed[targetId] = new Set());
 
   const playerRow = (p) => {
     const sc = scoresCache[p.n];
@@ -2074,8 +2140,9 @@ function renderMatchup(targetId) {
 
   const teamHtml = rows.map((r, rank) => {
     const isWin = started && rank === 0;
+    const isCollapsed = collapsed.has(r.i);
     return `<div class="muTeam${isWin ? " muWin" : ""}">
-      <div class="muTeamHead">
+      <div class="muTeamHead" data-mti="${r.i}">
         <div class="muRank">${started ? (MEDALS[rank] || `#${rank + 1}`) : `#${rank + 1}`}</div>
         ${avHtml(r.seat)}
         <div class="muTeamInfo">
@@ -2083,18 +2150,35 @@ function renderMatchup(targetId) {
           ${r.proj > 0 ? `<div class="vsSubPts">proj ${r.proj.toFixed(1)}</div>` : ""}
         </div>
         <div class="muTeamPts">${r.pts.toFixed(1)}</div>
+        <div class="muChevron${isCollapsed ? " muChevCollapsed" : ""}">▾</div>
       </div>
-      <div class="muPlayers">
+      <div class="muPlayers" style="display:${isCollapsed ? "none" : ""}">
         ${r.seat.roster.length ? r.seat.roster.map(playerRow).join("") : '<div class="muPlayer"><span class="vsEmpty">No picks yet</span></div>'}
       </div>
     </div>`;
   }).join("");
 
-  $(targetId).innerHTML = `<div class="muList">${teamHtml}</div>` +
-    `<div class="scoreNote">Tap a player for their box score · proj = 30-day avg · updates every 5 min${draft.scoring ? ` · ends ${new Date(draft.scoring.end).toLocaleDateString()}` : ""}</div>`;
+  const allCollapsed = rows.every((r) => collapsed.has(r.i));
+  $(targetId).innerHTML =
+    `<div class="scoreNote muTopNote"><span>Tap a name to minimize · tap a player for their box score</span><button type="button" class="muCollapseAll" data-target="${targetId}">${allCollapsed ? "Expand all" : "Minimize all"}</button></div>` +
+    `<div class="muList">${teamHtml}</div>` +
+    `<div class="scoreNote">proj = 30-day avg · updates every 5 min${draft.scoring ? ` · ends ${new Date(draft.scoring.end).toLocaleDateString()}` : ""}</div>`;
 
+  $(targetId).querySelectorAll(".muTeamHead[data-mti]").forEach((head) => {
+    head.addEventListener("click", () => {
+      const i = +head.getAttribute("data-mti");
+      if (collapsed.has(i)) collapsed.delete(i); else collapsed.add(i);
+      renderMatchup(targetId);
+    });
+  });
   $(targetId).querySelectorAll(".muPlayer[data-pn]").forEach((row) => {
-    row.addEventListener("click", () => showScoreDetail(row.getAttribute("data-pn")));
+    row.addEventListener("click", (e) => { e.stopPropagation(); showScoreDetail(row.getAttribute("data-pn")); });
+  });
+  const collapseAllBtn = $(targetId).querySelector(".muCollapseAll");
+  if (collapseAllBtn) collapseAllBtn.addEventListener("click", () => {
+    if (allCollapsed) collapsed.clear();
+    else rows.forEach((r) => collapsed.add(r.i));
+    renderMatchup(targetId);
   });
 }
 // zoom into one player's box score — day-by-day breakdown across the scoring window
