@@ -1170,7 +1170,7 @@ $("joinCodeBtn").addEventListener("click", () => {
   if (c.length >= 3) { $("joinCodeIn").value = ""; joinByCode(c); }
 });
 // ================= friends (profile tab) =================
-$("shareCode").addEventListener("click", () => shareText(`Add me on SquabbleUP! My friend code is ${me.friendcode} → ${location.origin}`));
+$("shareCode").addEventListener("click", () => shareText(`Add me on SquabbleUP! My friend code is: ${me.friendcode}`, location.origin));
 $("enablePushBtn").addEventListener("click", () => requestPushPermission());
 $("addFriendBtn").addEventListener("click", async () => {
   const code = $("codeIn").value.trim().toUpperCase();
@@ -1638,7 +1638,7 @@ $("lobbySeats").addEventListener("click", async (e) => {
   }
 });
 $("shareDraft").addEventListener("click", () =>
-  shareText(`Draft against me on SquabbleUP! Room code ${draft.code} —`, `${location.origin}/?join=${draft.code}`));
+  shareText(`Draft against me on SquabbleUP! Room code: ${draft.code}`, `${location.origin}/?join=${draft.code}`));
 $("lobbyAddBot").addEventListener("click", () => api(`/api/draft/${draft.code}/addbot`, { hostId: me.id }));
 $("lobbyShuffle").addEventListener("click", async () => {
   if (_shuffling || !draft || draft.seats.length < 2) return;
