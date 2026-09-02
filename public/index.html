@@ -1753,11 +1753,10 @@ function connect(code) {
   }, 3500);
 }
 function leaveDraft() {
-  // client-side auto-pick can't run once we're gone — tell the server so it goes back to
-  // notifying this seat's turn instead of silently assuming auto-pick will handle it
-  if (_autoDraft && draft?.code && !draft.local && me?.id) {
-    api(`/api/draft/${draft.code}/autodraft`, { userId: me.id, on: false }).catch(() => {});
-  }
+  // Auto Draft deliberately stays ON server-side when leaving/closing — the server has its
+  // own fallback (serverAutoDraft in server.js) that keeps drafting this seat even with no
+  // client connected, so navigating away or closing the app must never silently turn it off.
+  // Only clear the local timer/flag — connect() rehydrates _autoDraft from server truth.
   _connected = false;
   clearTimeout(_wsReconnectT); _wsReconnectT = null;
   if (ws) { try { ws.onclose = null; ws.close(); } catch {} ws = null; }
@@ -2754,14 +2753,9 @@ document.addEventListener("visibilitychange", () => {
   if (draft && _connected) api("/api/draft/" + draft.code).then((d) => { draft = d; routeDraft(); }).catch(() => {});
   else if (curTab === "home" && me?.id) fetchPublicRooms();
 });
-// closing the tab/app kills client-side auto-pick without going through leaveDraft() —
-// tell the server so it doesn't stay silent on "your pick!" notifications forever
-addEventListener("pagehide", () => {
-  if (_autoDraft && draft?.code && !draft.local && me?.id && navigator.sendBeacon) {
-    const body = new Blob([JSON.stringify({ userId: me.id, on: false })], { type: "application/json" });
-    navigator.sendBeacon(`/api/draft/${draft.code}/autodraft`, body);
-  }
-});
+// Auto Draft intentionally stays on when the app closes — server.js's serverAutoDraft
+// picks up any seat with autoDraft:true on its own 5s poll, so closing the app no longer
+// needs to (and must not) tell the server to turn it off.
 
 renderTop();
 if (!me) openProfile(true);

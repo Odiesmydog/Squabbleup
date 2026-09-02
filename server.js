@@ -1300,26 +1300,35 @@ initDb().then(() => {
   processSurvivorPools();
   setInterval(processSurvivorPools, SURVIVOR_POLL_MIN * 60 * 1000);
 
-  // Server-side auto-draft: when a pick timer expires and the client hasn't acted
-  // (offline player, dropped connection, etc.), the server auto-picks for them.
+  // Shared "best available player" pick, used by both trigger paths below.
+  async function pickBestAvailable(st) {
+    const taken = new Set(st.picks.map((p) => p.player));
+    const { players: todayNames, roster: todayRoster } = await resolveDraftPool(st.sport, st.gameFilter);
+    const playerPool = todayRoster.length > 0 ? todayRoster : PLAYERS.filter((p) => st.sport === "ALL" || p.sp === st.sport);
+    const rankMap = new Map(PLAYERS.map((p) => [p.n, p.r]));
+    return playerPool
+      .filter((p) => !taken.has(p.n))
+      .filter((p) => st.sport === "ALL" || p.sp === st.sport)
+      .filter((p) => !todayNames || todayNames.has(p.n))
+      .filter((p) => !p.livelock)
+      .sort((a, b) => (rankMap.get(a.n) || 999) - (rankMap.get(b.n) || 999))[0];
+  }
+
+  // Server-side auto-draft, two independent triggers:
+  //  1. the draft's pick timer expired (host-configured anti-stall setting), or
+  //  2. the current picker has "Auto Draft" turned on — auto-draft normally fires
+  //     client-side (fireAutoDraft), which only runs while that tab/app is open, so this
+  //     is the fallback that keeps a seat drafting once the app is closed or backgrounded.
+  // A live, connected client almost always wins the race (it fires in ~1.2s, this poller
+  // runs every 5s) — the picks-length-guarded UPDATE below just no-ops if it already did.
   async function serverAutoDraft(code, st) {
     try {
       if (st.status !== "active" || isDone(st)) return;
-      if (!st.pickTimer || !st.pickStartedAt) return;
-      if (st.pickStartedAt + st.pickTimer * 1000 > Date.now()) return;
       const seat = st.seats[pickerIndex(st)];
-      if (seat.bot) return; // bots have their own scheduler
-      const taken = new Set(st.picks.map((p) => p.player));
-      const { players: todayNames, roster: todayRoster } = await resolveDraftPool(st.sport, st.gameFilter);
-      const playerPool = todayRoster.length > 0 ? todayRoster : PLAYERS.filter((p) => st.sport === "ALL" || p.sp === st.sport);
-      const rankMap = new Map(PLAYERS.map((p) => [p.n, p.r]));
-      const avail = playerPool
-        .filter((p) => !taken.has(p.n))
-        .filter((p) => st.sport === "ALL" || p.sp === st.sport)
-        .filter((p) => !todayNames || todayNames.has(p.n))
-        .filter((p) => !p.livelock)
-        .sort((a, b) => (rankMap.get(a.n) || 999) - (rankMap.get(b.n) || 999));
-      const pick = avail[0];
+      if (!seat || seat.bot) return; // bots have their own scheduler
+      const timerExpired = st.pickTimer && st.pickStartedAt && st.pickStartedAt + st.pickTimer * 1000 <= Date.now();
+      if (!timerExpired && !seat.autoDraft) return;
+      const pick = await pickBestAvailable(st);
       if (!pick) return;
       const prevLen = st.picks.length;
       applyPick(st, pick);
@@ -1332,7 +1341,7 @@ initDb().then(() => {
         "UPDATE drafts SET state=$1, updated=now() WHERE code=$2 AND jsonb_array_length(state->'picks')=$3",
         [st, code, prevLen]
       );
-      if (upd.rowCount === 0) return; // another process beat us
+      if (upd.rowCount === 0) return; // another process (or the live client) beat us to it
       broadcast(code).catch(console.error);
       console.log(`Server auto-drafted ${pick.n} for ${seat.name} in ${code}`);
     } catch (e) { console.error("serverAutoDraft", e.message); }
@@ -1351,16 +1360,11 @@ initDb().then(() => {
       );
       await Promise.all(cd.rows.map((row) => activateCountdown(row.code)));
 
-      // 2. Auto-draft for active drafts where the pick timer has expired
-      const expired = await pool.query(
-        `SELECT code, state FROM drafts
-         WHERE (state->>'status') = 'active'
-         AND (state->>'pickTimer') IS NOT NULL
-         AND (state->>'pickStartedAt') IS NOT NULL
-         AND (state->>'pickStartedAt')::bigint + (state->>'pickTimer')::int * 1000 < $1`,
-        [Date.now()]
-      );
-      await Promise.all(expired.rows.map((row) => serverAutoDraft(row.code, row.state)));
+      // 2. Auto-draft every active draft — serverAutoDraft() itself no-ops unless the
+      // pick timer expired or the current seat has Auto Draft on, so this only ever
+      // does real work for the (small) subset of drafts that actually need it.
+      const active = await pool.query(`SELECT code, state FROM drafts WHERE (state->>'status') = 'active'`);
+      await Promise.all(active.rows.map((row) => serverAutoDraft(row.code, row.state)));
     } catch (e) { console.error("poller", e.message); }
   }, 5000);
 });
