@@ -159,7 +159,7 @@ async function broadcast(code) {
   // and the SW can suppress if the user's app is already focused
   if (st.status === "active" && !isDone(st)) {
     const seat = st.seats[pickerIndex(st)];
-    if (seat?.userId && !seat.bot) {
+    if (seat?.userId && !seat.bot && !seat.autoDraft) {
       const lastLen = lastNotifiedPick.get(code) ?? -1;
       if (st.picks.length !== lastLen) {
         lastNotifiedPick.set(code, st.picks.length);
@@ -793,6 +793,21 @@ app.get("/api/draft/:code/scores/detail", ah(async (req, res) => {
   const st = r.rows[0]?.state;
   if (!st) return res.status(404).json({ error: "Draft not found" });
   res.json(await scoring.draftScoreDetail(pool, st));
+}));
+
+// toggle a seat's auto-pick preference — persisted so the server can skip "your pick!"
+// push notifications for turns the client is about to fill in automatically anyway
+app.post("/api/draft/:code/autodraft", ah(async (req, res) => {
+  const code = req.params.code.toUpperCase();
+  const { userId, on } = req.body;
+  const r = await pool.query("SELECT state FROM drafts WHERE code=$1", [code]);
+  const st = r.rows[0]?.state;
+  if (!st) return res.status(404).json({ error: "Draft not found" });
+  const seat = st.seats.find((s) => s.userId === userId);
+  if (!seat) return res.status(403).json({ error: "Not in this draft" });
+  seat.autoDraft = !!on;
+  await pool.query("UPDATE drafts SET state=$1, updated=now() WHERE code=$2", [st, code]);
+  res.json({ ok: true });
 }));
 
 // pick (validated, optimistic concurrency: write only if pick count unchanged)
