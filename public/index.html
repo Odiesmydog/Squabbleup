@@ -98,6 +98,14 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
 .addRow input { flex: 1; background: var(--panel); border: 2px solid var(--line); border-radius: 12px; padding: 11px 14px; color: var(--text); font-size: 16px; font-weight: 700; min-width: 0; }
 .addRow input::placeholder { color: var(--dim); font-weight: 600; }
 
+.gameRow { display: flex; align-items: center; gap: 10px; background: var(--panel); border-radius: 12px; padding: 10px 12px; margin-bottom: 7px; border: 2px solid transparent; cursor: pointer; transition: transform .06s; }
+.gameRow:active { transform: scale(.99); }
+.gameRow.sel { border-color: var(--green); background: var(--raised); }
+.gameCheck { width: 20px; height: 20px; border-radius: 6px; border: 2px solid var(--line); flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 800; color: transparent; }
+.gameRow.sel .gameCheck { background: var(--green); border-color: var(--green); color: var(--ink); }
+.gameLabel { flex: 1; font-weight: 700; font-size: 14px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gameToggleAll { font-size: 12px; font-weight: 700; color: var(--purple); flex-shrink: 0; padding: 2px 4px; }
+
 .codeBox { background: var(--raised); border-radius: var(--r); text-align: center; padding: 14px; margin-bottom: 12px; box-shadow: 0 4px 0 #150E1F; }
 .codeBox .c { font-family: var(--display); font-weight: 700; font-size: 34px; letter-spacing: 7px; color: var(--purple); }
 .codeBox .l { font-size: 12px; color: var(--dim); }
@@ -223,26 +231,10 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
 .vsChip.vsL { background: var(--green); color: var(--ink); box-shadow: 0 3px 0 var(--green-d); }
 .vsChip.vsR { background: var(--purple); color: var(--text); box-shadow: 0 3px 0 var(--purple-d); }
 .vsChip.vsL .vsChipPts, .vsChip.vsR .vsChipPts { color: inherit; opacity: .8; }
-/* ── side pickers: explicit "who's on each side" dropdowns, no implicit shifting ── */
-.vsPickRow { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-.vsSel {
-  flex: 1; min-width: 0; background: var(--panel); border: 1.5px solid var(--line); border-radius: 12px;
-  padding: 11px 12px; color: var(--text); font-family: var(--display); font-weight: 700; font-size: 13.5px;
-  appearance: none; -webkit-appearance: none;
-  background-image: linear-gradient(45deg, transparent 50%, var(--dim) 50%), linear-gradient(135deg, var(--dim) 50%, transparent 50%);
-  background-position: calc(100% - 16px) center, calc(100% - 11px) center;
-  background-size: 5px 5px, 5px 5px; background-repeat: no-repeat;
-}
-.vsSel:focus-visible { border-color: var(--purple); }
-.vsVsTag { font-family: var(--display); font-size: 11px; font-weight: 800; color: var(--dim); letter-spacing: .5px; flex-shrink: 0; }
 .vsGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; background: var(--line); border-radius: var(--r); overflow: hidden; margin-bottom: 10px; }
 .vsHdr { background: var(--panel); padding: 14px 8px 12px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 3px; }
-.vsHdr.vsWin { background: #0C2318; box-shadow: inset 0 0 0 1px #22E88F, 0 0 18px -6px #22E88F99; }
 .vsHdrName { font-family: var(--display); font-weight: 700; font-size: 13px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.vsHdrPts { font-family: var(--display); font-weight: 700; font-size: 38px; color: var(--green); line-height: 1.05; }
-.vsHdr.vsWin .vsHdrPts { color: #4DFFB8; }
 .vsSubPts { font-size: 11px; color: var(--dim); }
-.vsCrown { font-size: 20px; margin-top: 2px; }
 .vsYou { font-size: 10px; color: var(--green); font-weight: 800; }
 .vsCell { background: var(--panel); padding: 9px 10px; min-width: 0; overflow: hidden; }
 .vsCell.vsAlt { background: var(--raised); }
@@ -252,7 +244,26 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
 .vsGreen { color: var(--green); font-weight: 800; }
 .vsDimTxt { color: var(--dim); }
 .vsEmpty { color: var(--dim); font-size: 13px; }
-.vsLine { font-size: 10.5px; color: var(--dim); margin-top: 3px; line-height: 1.4; word-break: break-word; }
+/* ── matchup: every drafter's roster visible at once, tap a player to zoom in ── */
+.muList { display: flex; flex-direction: column; gap: 10px; margin-bottom: 4px; }
+.muTeam { background: var(--panel); border-radius: var(--r); overflow: hidden; }
+.muTeam.muWin { box-shadow: inset 0 0 0 1px #22E88F, 0 0 18px -6px #22E88F99; }
+.muTeamHead { display: flex; align-items: center; gap: 10px; padding: 12px; background: var(--raised); }
+.muTeam.muWin .muTeamHead { background: #0C2318; }
+.muRank { font-size: 15px; font-weight: 800; width: 24px; text-align: center; color: var(--dim); flex-shrink: 0; }
+.muTeam.muWin .muRank { font-size: 18px; }
+.muTeamInfo { flex: 1; min-width: 0; }
+.muTeamName { font-family: var(--display); font-weight: 700; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.muTeamPts { font-family: var(--display); font-weight: 700; font-size: 22px; color: var(--green); flex-shrink: 0; }
+.muTeam.muWin .muTeamPts { color: #4DFFB8; }
+.muPlayers { display: flex; flex-direction: column; }
+.muPlayer { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--raised); cursor: pointer; transition: background .1s; }
+.muPlayer:last-child { border-bottom: none; }
+.muPlayer:active { background: var(--raised); }
+.muPi { flex: 1; min-width: 0; }
+.muPn { font-weight: 800; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.muPd { font-size: 11px; color: var(--dim); margin-top: 1px; }
+.muPpts { font-weight: 800; font-size: 14px; flex-shrink: 0; }
 .scoreNote { font-size: 11.5px; color: var(--dim); text-align: center; margin: 10px 0; }
 .noGamesBox { background: var(--raised); border-left: 3px solid var(--purple); border-radius: 8px; padding: 10px 13px; font-size: 12.5px; color: var(--dim); margin: 8px 0; line-height: 1.5; }
 .ruleGrid { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
@@ -514,12 +525,15 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
       <button class="choice" data-sp="UFC"><span class="e">🥊</span>UFC</button>
       <button class="choice" data-sp="SOC"><span class="e">⚽</span>Soccer</button>
     </div>
-    <div class="stepLbl">2 · How many rounds?</div>
+    <div class="stepLbl" id="gameStepLbl" style="display:none">2 · Which games?</div>
+    <p class="note" id="gameStepHint" style="display:none;margin:-4px 0 8px;text-align:left">Only players from the games you pick will be draftable.</p>
+    <div id="gameList" style="display:none;margin-bottom:4px"></div>
+    <div class="stepLbl">3 · How many rounds?</div>
     <div class="choiceGrid two" id="roundGrid">
       <button class="choice sel" data-rd="3"><span class="e">⚡</span>Quick · 3</button>
       <button class="choice" data-rd="6"><span class="e">🏆</span>Full · 6</button>
     </div>
-    <div class="stepLbl">3 · Who can join?</div>
+    <div class="stepLbl">4 · Who can join?</div>
     <div class="choiceGrid two" id="visGrid">
       <button class="choice sel" data-vis="private"><span class="e">🔒</span>Friends only</button>
       <button class="choice" data-vis="public"><span class="e">🌐</span>Open to all</button>
@@ -531,7 +545,7 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
         <p class="note" style="margin-top:5px">Everyone must shake on it before the draft can start.</p>
       </div>
     </div>
-    <div class="stepLbl">4 · Pick timer <span style="color:var(--dim);font-size:10px;font-weight:600;text-transform:none;letter-spacing:0">(optional — auto-drafts when time runs out)</span></div>
+    <div class="stepLbl">5 · Pick timer <span style="color:var(--dim);font-size:10px;font-weight:600;text-transform:none;letter-spacing:0">(optional — auto-drafts when time runs out)</span></div>
     <div class="choiceGrid" id="timerGrid">
       <button class="choice sel" data-tm="0">Off</button>
       <button class="choice" data-tm="60">1:00</button>
@@ -875,6 +889,7 @@ $("newDraft").addEventListener("click", () => {
   $("hsStakeIn").value = "";
   $("createNote").style.display = ""; $("publicNote").style.display = "none";
   checkGolfBlock();
+  loadGamePicker();
   show("scrNew");
 });
 function loadHome() { gotoTab(curTab in TABSCR ? curTab : "home"); }
@@ -1183,11 +1198,62 @@ async function checkGolfBlock() {
     btn.disabled = true;
   } catch { if (seq === _golfCheckSeq) { note.style.display = "none"; btn.disabled = false; } }
 }
+// game picker (2+ games on the slate) — lets the host scope the draft to specific
+// games instead of dumping every game's roster into one giant, unordered pool
+const GAME_PICKER_SPORTS = new Set(["NFL", "CFB", "NBA", "CBB", "MLB", "NHL"]);
+let wizGames = []; // [{label, teams: [abbr,...]}]
+let wizSelectedGames = new Set(); // indices into wizGames
+let _gameCheckSeq = 0;
+async function loadGamePicker() {
+  const lbl = $("gameStepLbl"), hint = $("gameStepHint"), list = $("gameList");
+  const sportAtCall = wizSport;
+  if (!GAME_PICKER_SPORTS.has(sportAtCall)) {
+    lbl.style.display = "none"; hint.style.display = "none"; list.style.display = "none";
+    wizGames = []; wizSelectedGames = new Set();
+    return;
+  }
+  const seq = ++_gameCheckSeq;
+  let sched;
+  try { sched = await api(`/api/schedule/${sportAtCall}`); }
+  catch { sched = null; }
+  if (seq !== _gameCheckSeq || wizSport !== sportAtCall) return; // sport changed while awaiting
+  // dedupe the team->label map into distinct games, each carrying its team abbrs
+  const byLabel = new Map();
+  for (const [tm, label] of Object.entries(sched?.matchups || {})) {
+    if (!byLabel.has(label)) byLabel.set(label, []);
+    byLabel.get(label).push(tm);
+  }
+  wizGames = [...byLabel.entries()].map(([label, teams]) => ({ label, teams }));
+  wizSelectedGames = new Set(wizGames.map((_, i) => i)); // default: everything included
+  if (wizGames.length < 2) {
+    lbl.style.display = "none"; hint.style.display = "none"; list.style.display = "none";
+    return;
+  }
+  lbl.style.display = ""; hint.style.display = "block"; list.style.display = "block";
+  renderGamePicker();
+}
+function renderGamePicker() {
+  $("gameList").innerHTML = wizGames.map((g, i) => `
+    <div class="gameRow${wizSelectedGames.has(i) ? " sel" : ""}" data-gi="${i}">
+      <span class="gameCheck">✓</span>
+      <span class="gameLabel">${esc(g.label)}</span>
+    </div>`).join("");
+}
+$("gameList").addEventListener("click", (e) => {
+  const row = e.target.closest(".gameRow"); if (!row) return;
+  const i = +row.getAttribute("data-gi");
+  if (wizSelectedGames.has(i)) {
+    if (wizSelectedGames.size === 1) { toast("Pick at least one game"); return; }
+    wizSelectedGames.delete(i);
+  } else wizSelectedGames.add(i);
+  renderGamePicker();
+});
 $("sportGrid").addEventListener("click", (e) => {
   const b = e.target.closest(".choice"); if (!b) return;
   document.querySelectorAll("#sportGrid .choice").forEach((c) => c.classList.remove("sel"));
   b.classList.add("sel"); wizSport = b.getAttribute("data-sp");
   checkGolfBlock();
+  loadGamePicker();
 });
 $("roundGrid").addEventListener("click", (e) => {
   const b = e.target.closest(".choice"); if (!b) return;
@@ -1213,12 +1279,18 @@ $("createDraft").addEventListener("click", async (e) => {
   btn.disabled = true;
   try {
     const stake = $("hsStakeIn").value.trim();
+    // only send a filter when the host actually narrowed it down — leaving everything
+    // selected (the default) means "all games", same as not filtering at all
+    const gameFilter = (GAME_PICKER_SPORTS.has(wizSport) && wizGames.length > 0 && wizSelectedGames.size < wizGames.length)
+      ? [...wizSelectedGames].flatMap((i) => wizGames[i].teams)
+      : null;
     const { code } = await api("/api/draft/create", {
       hostId: me.id, sport: wizSport, rounds: wizRounds,
       name: SPORTNAMES[wizSport] + " squabble",
       handshake: stake ? { stake, agreed: [] } : null,
       public: wizPublic,
       pickTimer: wizTimer,
+      gameFilter,
     });
     $("hsStakeIn").value = "";
     joinByCode(code);
@@ -1612,6 +1684,7 @@ function availPlayers() {
     .filter((p) => !taken.has(p.n))
     .filter((p) => draft.sport === "ALL" || p.sp === draft.sport)
     .filter((p) => !todaysPlayers || todaysPlayers.has(p.n))
+    .filter((p) => !draft.gameFilter || draft.gameFilter.includes(p.tm))
     .filter((p) => posFilter === "All" || p.pos === posFilter)
     .filter((p) => p.n.toLowerCase().includes(q));
   return filtered.sort((a, b) => {
@@ -1771,9 +1844,10 @@ function renderRoom() {
   const poses = ["All", ...new Set(posPool.map((p) => p.pos))];
   $("posFilters").innerHTML = poses.map((p) => `<button class="fchip ${posFilter === p ? "on" : ""}" data-pos="${p}">${p}</button>`).join("");
 
-  // Golf/UFC/TEN/SOC have full event fields — show all; large roster sports cap at 80
-  const FULL_FIELD = new Set(["GOLF", "UFC", "TEN", "SOC"]);
-  const poolCap = FULL_FIELD.has(draft.sport) ? 300 : 80;
+  // safety-net cap so a huge unfiltered slate (e.g. every CFB game on a Saturday) can't
+  // make the list unusably long — the game picker in the wizard is the real fix, since a
+  // properly scoped draft (1-3 games) never gets close to this
+  const poolCap = 400;
   $("pool").innerHTML = availPlayers().slice(0, poolCap).map((p) => {
     const game = p.ev || todayMatchups[p.tm] || p.tm;
     const proj = draftRoomProj[p.n];
@@ -1958,87 +2032,86 @@ function seatTotals() {
     return a.i - b.i;
   });
 }
+const MEDALS = ["🥇", "🥈", "🥉"];
+// Everyone's roster, visible at once — no picking who to compare first. Tap any player
+// to zoom into their box score. Ranking reuses seatTotals()'s deterministic order so this
+// can never disagree with the no-ties logic.
 function renderMatchup(targetId) {
   const rows = seatTotals();
   if (rows.length < 2) {
     $(targetId).innerHTML = '<div class="emptyBox"><div class="e">⚔️</div>Need at least 2 drafters.</div>';
     return;
   }
+  const started = rows.some((r) => r.pts !== 0);
 
-  // Initialize or validate selection
-  const sel = vsSelection[targetId] || (vsSelection[targetId] = { left: rows[0].i, right: rows[1].i });
-  if (!rows.find((r) => r.i === sel.left)) sel.left = rows[0].i;
-  if (!rows.find((r) => r.i === sel.right) || sel.right === sel.left)
-    sel.right = (rows.find((r) => r.i !== sel.left) || rows[1]).i;
+  const playerRow = (p) => {
+    const sc = scoresCache[p.n];
+    const pts = sc?.pts ?? 0;
+    const pr = projCache[p.n];
+    const ptsHtml = pts !== 0
+      ? `<span class="vsGreen">${pts > 0 ? "+" : ""}${pts.toFixed(1)}</span>`
+      : `<span class="vsDimTxt">—</span>`;
+    return `<div class="muPlayer" data-pn="${esc(p.n)}">
+      <div class="muPi">
+        <div class="muPn">${esc(p.n)}</div>
+        <div class="muPd">${p.sp} ${p.pos}${pr ? ` · <span class="vsDimTxt">proj ${pr.proj.toFixed(1)}</span>` : ""}</div>
+      </div>
+      <div class="muPpts">${ptsHtml}</div>
+    </div>`;
+  };
 
-  const lData = rows.find((r) => r.i === sel.left) || rows[0];
-  const rData = rows.find((r) => r.i === sel.right) || rows[1];
-  const multi = rows.length >= 3;
-
-  // ── side pickers (3+ drafters only) — explicit dropdowns instead of a chip you tap that
-  // implicitly shifts the old selection to the other side, which read as unpredictable ──
-  const opts = (excludeIdx) => rows.map((r) =>
-    `<option value="${r.i}" ${r.i === excludeIdx ? "disabled" : ""}>${esc(r.seat.name)} · ${r.pts.toFixed(1)}</option>`).join("");
-  const pickerHtml = multi
-    ? `<div class="vsPickRow">
-        <select class="vsSel" data-side="left">${opts(sel.right)}</select>
-        <span class="vsVsTag">VS</span>
-        <select class="vsSel" data-side="right">${opts(sel.left)}</select>
-      </div>`
-    : "";
-
-  // ── column headers ──
-  // seatTotals() already produces a fully deterministic order (never a true tie), so the
-  // winner is simply whichever of the two sits first in `rows` — but don't crown anyone
-  // before any real scoring exists (both sides still at 0, e.g. draft just started)
-  const started = lData.pts > 0 || rData.pts > 0;
-  const lWin = started && rows.indexOf(lData) < rows.indexOf(rData);
-  const rWin = started && rows.indexOf(rData) < rows.indexOf(lData);
-  const hdr = (d, win) => `<div class="vsHdr${win ? " vsWin" : ""}">
-    ${avHtml(d.seat)}
-    <div class="vsHdrName">${esc(d.seat.name)}${d.seat.userId === me.id ? ' <span class="vsYou">YOU</span>' : ""}</div>
-    <div class="vsHdrPts">${d.pts.toFixed(1)}</div>
-    ${d.proj > 0 ? `<div class="vsSubPts">proj ${d.proj.toFixed(1)}</div>` : ""}
-    ${win ? `<div class="vsCrown">👑</div>` : ""}
-  </div>`;
-
-  // ── pick rows (one grid row per draft round) ──
-  const maxLen = Math.max(lData.seat.roster.length, rData.seat.roster.length);
-  const pickRows = Array.from({ length: maxLen }, (_, i) => {
-    const alt = i % 2 === 1 ? " vsAlt" : "";
-    const cell = (p) => {
-      if (!p) return `<div class="vsCell${alt}"><span class="vsEmpty">—</span></div>`;
-      const sc = scoresCache[p.n];
-      const pts = sc?.pts ?? 0;
-      const pr = projCache[p.n];
-      const ptsHtml = pts !== 0
-        ? `<span class="vsGreen">${pts > 0 ? "+" : ""}${pts.toFixed(1)}</span>`
-        : `<span class="vsDimTxt">—</span>`;
-      return `<div class="vsCell${alt}">
-        <div class="vsRd">R${i + 1}</div>
-        <div class="vsPn">${esc(p.n)}</div>
-        <div class="vsMeta">${p.sp} ${p.pos} · ${ptsHtml}${pr ? ` <span class="vsDimTxt">proj ${pr.proj.toFixed(1)}</span>` : ""}</div>
-        ${sc?.line ? `<div class="vsLine">${esc(sc.line)}</div>` : ""}
-      </div>`;
-    };
-    return cell(lData.seat.roster[i]) + cell(rData.seat.roster[i]);
+  const teamHtml = rows.map((r, rank) => {
+    const isWin = started && rank === 0;
+    return `<div class="muTeam${isWin ? " muWin" : ""}">
+      <div class="muTeamHead">
+        <div class="muRank">${started ? (MEDALS[rank] || `#${rank + 1}`) : `#${rank + 1}`}</div>
+        ${avHtml(r.seat)}
+        <div class="muTeamInfo">
+          <div class="muTeamName">${esc(r.seat.name)}${r.seat.userId === me.id ? ' <span class="vsYou">YOU</span>' : ""}</div>
+          ${r.proj > 0 ? `<div class="vsSubPts">proj ${r.proj.toFixed(1)}</div>` : ""}
+        </div>
+        <div class="muTeamPts">${r.pts.toFixed(1)}</div>
+      </div>
+      <div class="muPlayers">
+        ${r.seat.roster.length ? r.seat.roster.map(playerRow).join("") : '<div class="muPlayer"><span class="vsEmpty">No picks yet</span></div>'}
+      </div>
+    </div>`;
   }).join("");
 
-  $(targetId).innerHTML = pickerHtml +
-    `<div class="vsGrid">${hdr(lData, lWin)}${hdr(rData, rWin)}${pickRows}</div>` +
-    `<div class="scoreNote">${multi ? "Pick anyone above to compare · " : ""}proj = 30-day avg · updates every 5 min${draft.scoring ? ` · ends ${new Date(draft.scoring.end).toLocaleDateString()}` : ""}</div>`;
+  $(targetId).innerHTML = `<div class="muList">${teamHtml}</div>` +
+    `<div class="scoreNote">Tap a player for their box score · proj = 30-day avg · updates every 5 min${draft.scoring ? ` · ends ${new Date(draft.scoring.end).toLocaleDateString()}` : ""}</div>`;
 
-  // ── dropdown change: pick a side, pick who's on it — no implicit shifting ──
-  if (multi) {
-    $(targetId).querySelectorAll(".vsSel").forEach((selEl) => {
-      selEl.value = selEl.getAttribute("data-side") === "left" ? sel.left : sel.right;
-      selEl.addEventListener("change", (e) => {
-        const side = e.target.getAttribute("data-side");
-        sel[side] = +e.target.value;
-        renderMatchup(targetId);
-      });
-    });
-  }
+  $(targetId).querySelectorAll(".muPlayer[data-pn]").forEach((row) => {
+    row.addEventListener("click", () => showScoreDetail(row.getAttribute("data-pn")));
+  });
+}
+// zoom into one player's box score — day-by-day breakdown across the scoring window
+function showScoreDetail(pname) {
+  const p = draft.seats.flatMap((s) => s.roster).find((x) => x.n === pname);
+  if (!p) return;
+  const sc = scoresCache[pname];
+  const pts = sc?.pts ?? 0;
+  const pr = projCache[pname];
+  const days = scoresDetail[pname] || [];
+  const st = playerStatus[pname];
+  const thumb = st?.thumb
+    ? `<img src="${st.thumb}" onerror="this.style.display='none'" alt="" style="width:64px;height:64px;border-radius:12px;object-fit:cover" />`
+    : `<div style="width:64px;height:64px;border-radius:12px;background:var(--raised);display:flex;align-items:center;justify-content:center;font-size:28px">${esc(p.n[0])}</div>`;
+  $("pDetailContent").innerHTML = `
+    <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px;padding-right:30px">
+      ${thumb}
+      <div>
+        <div style="font-weight:800;font-size:18px;line-height:1.2">${esc(pname)}</div>
+        <div style="color:var(--dim);font-size:13px;margin-top:4px"><span class="spTag">${p.sp}</span> ${p.pos} · ${esc(p.tm)}</div>
+      </div>
+    </div>
+    <div class="pDetailRow"><span class="pDetailLbl">Total pts</span><span class="pDetailVal" style="color:var(--green);font-size:20px">${pts.toFixed(1)}</span></div>
+    ${pr ? `<div class="pDetailRow"><span class="pDetailLbl">Projected</span><span class="pDetailVal pDetailProj">${pr.proj.toFixed(1)}</span></div>` : ""}
+    ${days.length
+      ? days.map((d) => `<div class="pDetailRow"><span class="pDetailLbl">${new Date(d.day + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}</span><span class="pDetailVal" style="color:var(--green);text-align:right">${d.pts > 0 ? "+" : ""}${d.pts.toFixed(1)}${d.line ? `<div style="font-size:11px;color:var(--dim);font-weight:600">${esc(d.line)}</div>` : ""}</span></div>`).join("")
+      : `<div class="pDetailRow"><span class="pDetailLbl">Stats</span><span class="pDetailVal" style="color:var(--dim)">No games played yet</span></div>`}
+  `;
+  $("pDetailModal").classList.add("on");
 }
 
 // ================= results =================

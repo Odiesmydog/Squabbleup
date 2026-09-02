@@ -407,7 +407,7 @@ app.post("/api/account/delete", ah(async (req, res) => {
 
 // create draft (lobby)
 app.post("/api/draft/create", ah(async (req, res) => {
-  const { hostId, sport, rounds, name, handshake, public: isPublic } = req.body;
+  const { hostId, sport, rounds, name, handshake, public: isPublic, gameFilter } = req.body;
   const u = (await pool.query("SELECT * FROM users WHERE id=$1", [hostId])).rows[0];
   if (!u) return res.status(404).json({ error: "register first" });
   // Golf has no per-team roster to fall back on like other sports — when ESPN hasn't
@@ -436,6 +436,11 @@ app.post("/api/draft/create", ah(async (req, res) => {
     seats: [{ userId: hostId, name: u.name, av: u.av, img: u.img, bot: false, roster: [] }],
     picks: [], chat: [],
     handshake: handshake?.stake ? { stake: String(handshake.stake).slice(0, 60), agreed: [] } : null,
+    // scopes the draftable pool to specific games (e.g. one CFB Saturday has 60+ games) —
+    // an array of team abbreviations; null/absent means every game on the slate is in
+    gameFilter: Array.isArray(gameFilter) && gameFilter.length > 0
+      ? gameFilter.filter((t) => typeof t === "string").map((t) => t.toUpperCase().slice(0, 6)).slice(0, 64)
+      : null,
   };
   await pool.query("INSERT INTO drafts (code, state, participants) VALUES ($1,$2,$3)", [code, state, [hostId]]);
   pool.query("UPDATE stats SET val = val + 1 WHERE key='drafts_created'").catch(() => {});
@@ -841,6 +846,8 @@ app.post("/api/draft/:code/pick", ah(async (req, res) => {
     const rp = (sched.roster || []).find((x) => x.n === player);
     if (rp?.livelock)
       return res.status(400).json({ error: `${player} already started playing — pick someone whose game hasn't begun` });
+    if (st.gameFilter && rp?.tm && !st.gameFilter.includes(rp.tm))
+      return res.status(400).json({ error: `${player}'s game wasn't included in this draft` });
   }
   let p = PLAYERS.find((x) => x.n === player && (st.sport === "ALL" || x.sp === st.sport));
   if (!p && pos && sp && tm && (st.sport === "ALL" || sp === st.sport)) p = { n: player, pos, sp, tm };
