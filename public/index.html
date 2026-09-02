@@ -1882,12 +1882,23 @@ async function fetchScores() {
 }
 function seatTotals() {
   return draft.seats.map((s, i) => {
-    const pts = s.roster.reduce((a, p) => a + (scoresCache[p.n]?.pts || 0), 0);
+    const playerPts = s.roster.map((p) => scoresCache[p.n]?.pts || 0).sort((a, b) => b - a); // best → worst
+    const pts = playerPts.reduce((a, b) => a + b, 0);
     const proj = s.roster.reduce((a, p) => a + (projCache[p.n]?.proj || 0), 0);
-    // tiebreaker: count of roster players who actually scored (pts > 0)
-    const scorers = s.roster.filter((p) => (scoresCache[p.n]?.pts || 0) > 0).length;
-    return { seat: s, i, pts, proj, scorers };
-  }).sort((a, b) => b.pts - a.pts || b.scorers - a.scorers);
+    return { seat: s, i, pts, proj, playerPts };
+  }).sort((a, b) => {
+    if (b.pts !== a.pts) return b.pts - a.pts;
+    // same total — never call it a tie: compare each roster's scores best-to-worst until
+    // one differs (catches e.g. [10,5,0] vs [9,6,0], which sum equal but aren't a real tie)
+    const len = Math.max(a.playerPts.length, b.playerPts.length);
+    for (let k = 0; k < len; k++) {
+      const diff = (b.playerPts[k] ?? -Infinity) - (a.playerPts[k] ?? -Infinity);
+      if (diff !== 0) return diff;
+    }
+    // full statistical dead heat (identical scores top to bottom, or both all-zero) — fall
+    // back to draft turn order, which is always unique per seat, so this never ties either
+    return a.i - b.i;
+  });
 }
 function renderMatchup(targetId) {
   const rows = seatTotals();
@@ -1915,14 +1926,16 @@ function renderMatchup(targetId) {
     : "";
 
   // ── column headers ──
-  const tied = lData.pts === rData.pts && lData.pts > 0;
-  const lWin = tied ? lData.scorers > rData.scorers : (lData.pts > rData.pts && lData.pts > 0);
-  const rWin = tied ? rData.scorers > lData.scorers : (rData.pts > lData.pts && rData.pts > 0);
+  // seatTotals() already produces a fully deterministic order (never a true tie), so the
+  // winner is simply whichever of the two sits first in `rows` — but don't crown anyone
+  // before any real scoring exists (both sides still at 0, e.g. draft just started)
+  const started = lData.pts > 0 || rData.pts > 0;
+  const lWin = started && rows.indexOf(lData) < rows.indexOf(rData);
+  const rWin = started && rows.indexOf(rData) < rows.indexOf(lData);
   const hdr = (d, win) => `<div class="vsHdr${win ? " vsWin" : ""}">
     ${avHtml(d.seat)}
     <div class="vsHdrName">${esc(d.seat.name)}${d.seat.userId === me.id ? ' <span class="vsYou">YOU</span>' : ""}</div>
-    <div class="vsHdrPts">${d.pts.toFixed(1)}${tied && d.scorers !== (d === lData ? rData : lData).scorers ? `<span style="font-size:11px;color:var(--dim);margin-left:4px">${d.scorers}W</span>` : ""}</div>
-    ${tied && d.scorers === (d === lData ? rData : lData).scorers ? `<div style="font-size:11px;color:var(--gold);margin-top:2px">TIE</div>` : ""}
+    <div class="vsHdrPts">${d.pts.toFixed(1)}</div>
     ${d.proj > 0 ? `<div class="vsSubPts">proj ${d.proj.toFixed(1)}</div>` : ""}
     ${win ? `<div class="vsCrown">👑</div>` : ""}
   </div>`;
