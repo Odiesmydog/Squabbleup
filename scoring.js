@@ -144,7 +144,7 @@ function scoreSoccer(summary) {
 async function todaysTeams(sport) {
   const pair = LEAGUES[sport];
   if (!pair) return null;
-  const day = dstr(new Date());
+  const day = etDateStr();
   try {
     const sb = await jget(`https://site.api.espn.com/apis/site/v2/sports/${pair[0]}/${pair[1]}/scoreboard?dates=${day}`);
     const teams = new Set();
@@ -214,13 +214,13 @@ async function _fetchSchedule(sport) {
     const short = (n) => { const p = n.trim().split(" "); return p.length >= 2 ? p[0][0] + ". " + p[p.length - 1] : n; };
     try {
       for (let i = 0; i < 14; i++) {
-        const d = new Date(Date.now() + i * 864e5);
+        const d = etDateObj(i);
         let sb;
         try { sb = await jget(`https://site.api.espn.com/apis/site/v2/sports/mma/ufc/scoreboard?dates=${dstr(d)}`); }
         catch { continue; }
         if (!sb.events?.length) continue;
         const future = i > 0;
-        const dateLbl = future ? d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }) : "";
+        const dateLbl = future ? d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "America/New_York" }) : "";
         const names = new Set(); const roster = [];
         for (const ev of sb.events || []) {
           const evName = ev.shortName || ev.name || "UFC";
@@ -293,16 +293,17 @@ async function _fetchSchedule(sport) {
       }
       return found;
     }
-    const todayFound = await fetchTennisDay(dstr(new Date()));
+    const todayFound = await fetchTennisDay(etDateStr());
     // only look at tomorrow if today is a complete rest day (no pre or in matches at all)
-    if (todayFound === 0) await fetchTennisDay(dstr(new Date(Date.now() + 864e5)));
+    if (todayFound === 0) await fetchTennisDay(etDateStr(1));
     return { players: names.size > 0 ? names : null, matchups, roster };
   }
   // World Cup — parallel team roster fetches; livelock in-progress matches; skip completed
   if (sport === "WCUP") {
     const names = new Set(); const matchups = {}; const roster = [];
-    // check today + tomorrow to handle UTC date boundary edge cases
-    const days = [dstr(new Date()), dstr(new Date(Date.now() + 864e5))];
+    // matches kick off in every timezone worldwide, so check yesterday/today/tomorrow (UTC) —
+    // any single day's boundary can miss a match still in progress or about to start
+    const days = [-1, 0, 1].map((o) => dstr(new Date(Date.now() + o * 864e5)));
     const allEvents = [];
     await Promise.all(days.map(async (day) => {
       try {
@@ -359,12 +360,13 @@ async function _fetchSchedule(sport) {
   // Soccer (all leagues + World Cup) — parallel fetching, livelock in-progress, match labels
   if (sport === "SOC") {
     const names = new Set(); const matchups = {}; const roster = [];
-    const today = dstr(new Date());
+    // matches kick off in every timezone worldwide, so check yesterday/today/tomorrow (UTC)
+    const days = [-1, 0, 1].map((o) => dstr(new Date(Date.now() + o * 864e5)));
     const allLeagues = [...SOC_LEAGUES, "fifa.world"];
 
     // 1. Collect all events across all leagues for today in parallel
     const rawEvents = (await Promise.all(
-      allLeagues.flatMap((lg) => [today].map(async (day) => {
+      allLeagues.flatMap((lg) => days.map(async (day) => {
         try {
           const sb = await jget(`https://site.api.espn.com/apis/site/v2/sports/soccer/${lg}/scoreboard?dates=${day}`);
           return (sb.events || []).map((ev) => ({ lg, ev }));
@@ -427,7 +429,7 @@ async function _fetchSchedule(sport) {
   }
   const pair = LEAGUES[sport];
   if (!pair) return { players: null, matchups: {}, roster: [] };
-  const day = dstr(new Date());
+  const day = etDateStr();
   try {
     const sb = await jget(`https://site.api.espn.com/apis/site/v2/sports/${pair[0]}/${pair[1]}/scoreboard?dates=${day}`);
     if (!sb.events?.length) return { players: null, matchups: {}, roster: [] };
@@ -466,10 +468,16 @@ async function _fetchSchedule(sport) {
         if (teamId) {
           try {
             const r = await jget(`https://site.api.espn.com/apis/site/v2/sports/${pair[0]}/${pair[1]}/teams/${teamId}/roster`);
-            // ESPN baseball/hockey returns grouped athletes: [{position, items:[...]}]
-            // ESPN basketball/football returns flat athletes: [{displayName, ...}]
+            // ESPN baseball/hockey group by position (Pitchers, Catchers, ...) — all draftable.
+            // ESPN football (NFL/CFB) groups by roster status instead — offense/defense/specialTeam
+            // are the active roster, but injuredReserveOrOut/suspended/practiceSquad are NOT
+            // playing this week and must never enter the draft pool.
+            // ESPN basketball returns flat athletes: [{displayName, ...}], no grouping at all.
+            const ROSTER_STATUS_EXCLUDE = new Set(["injuredreserveorout", "suspended", "practicesquad"]);
             const rawAthletes = r.athletes || [];
-            const athletes = rawAthletes.flatMap((a) => a.items?.length ? a.items : (a.displayName ? [a] : []));
+            const athletes = rawAthletes
+              .filter((a) => !a.items?.length || !ROSTER_STATUS_EXCLUDE.has(String(a.position || "").toLowerCase()))
+              .flatMap((a) => a.items?.length ? a.items : (a.displayName ? [a] : []));
             for (const a of athletes) {
               if (a.displayName) {
                 const rawPos = knownPos.get(a.displayName) || a.position?.abbreviation || "?";
@@ -520,11 +528,11 @@ async function nextGameDay(sport) {
   const pair = LEAGUES[sport];
   if (!pair) return null;
   for (let i = 1; i <= 14; i++) {
-    const d = new Date(Date.now() + i * 864e5);
+    const d = etDateObj(i);
     try {
       const sb = await jget(`https://site.api.espn.com/apis/site/v2/sports/${pair[0]}/${pair[1]}/scoreboard?dates=${dstr(d)}`);
       if (sb.events?.length > 0) {
-        return d.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
+        return d.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric", timeZone: "America/New_York" });
       }
     } catch {}
   }
@@ -538,6 +546,24 @@ async function jget(url) {
   return r.json();
 }
 const dstr = (d) => d.toISOString().slice(0, 10).replace(/-/g, "");
+
+// American leagues (and ESPN's own scoreboard `dates=` bucketing) schedule around US Eastern
+// time, not UTC. Plain UTC "today" rolls over at 8pm ET — right when evening games are still
+// live — which would silently swap the draft pool to tomorrow's slate for hours every night.
+// Anchor "today" to the Eastern calendar date instead so it matches what ESPN actually shows.
+function etTodayParts() {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
+  const get = (t) => +parts.find((p) => p.type === t).value;
+  return { y: get("year"), m: get("month"), d: get("day") };
+}
+function etDateObj(offsetDays = 0) {
+  const { y, m, d } = etTodayParts();
+  // noon UTC anchor sidesteps DST/rounding surprises when adding offset days
+  const dt = new Date(Date.UTC(y, m - 1, d, 12));
+  dt.setUTCDate(dt.getUTCDate() + offsetDays);
+  return dt;
+}
+const etDateStr = (offsetDays = 0) => dstr(etDateObj(offsetDays));
 
 async function pollLeagueDay(pool, sport, dayDate) {
   const [s, l] = LEAGUES[sport];
