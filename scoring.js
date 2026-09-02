@@ -54,7 +54,13 @@ function golfPoints(pos) {
   return 3; // made the cut / finished
 }
 // Tennis pts: match win 15, per set won 3, straight-sets bonus 5
-const TENNIS_MATCH_WIN = 15, TENNIS_SET = 3, TENNIS_STRAIGHT = 5;
+// ESPN's tennis API has no per-point stats (no aces/double faults/break points anywhere —
+// confirmed no working summary endpoint), but the scoreboard's linescores DO carry games
+// won per set and tiebreak scores, which the old scoring ignored entirely (only used set
+// *count*). A 6-0 6-0 blowout and a 7-6 7-6 nail-biter scored identically before; now games
+// won add real granularity, and tiebreak/bagel/comeback bonuses reward how a match was won.
+const TENNIS_MATCH_WIN = 15, TENNIS_SET = 3, TENNIS_GAME = 0.4, TENNIS_STRAIGHT = 5,
+      TENNIS_TIEBREAK = 2, TENNIS_BAGEL = 3, TENNIS_COMEBACK = 4;
 
 // ---------- name matching ----------
 const norm = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z ]/g, "").replace(/\s+/g, " ").trim();
@@ -707,12 +713,29 @@ async function pollTennisDay(pool, dayDate) {
           const poolName = matchPool(idx, name);
           if (!poolName) continue;
           const isWinner = !!c.winner;
-          const setsWon = Math.min(parseInt(c.score) || 0, 5); // ESPN score = sets won
-          const oppSets = Math.min(parseInt(comps.find(x => x !== c)?.score) || 0, 5);
+          const myLines = c.linescores || [];
+          const oppLines = comps.find((x) => x !== c)?.linescores || [];
+          // walk each set actually played: games won, tiebreaks won, and "bagel" sets (6-0)
+          let setsWon = 0, gamesWon = 0, tiebreaksWon = 0, bagels = 0;
+          myLines.forEach((ls, i) => {
+            const myGames = ls.value ?? 0;
+            const oppGames = oppLines[i]?.value ?? 0;
+            gamesWon += myGames;
+            if (ls.winner) {
+              setsWon++;
+              if (myGames === 6 && oppGames === 0) bagels++;
+            }
+            if (ls.tiebreak != null && ls.winner) tiebreaksWon++;
+          });
           let pts = 0; const parts = [];
           if (isWinner) { pts += TENNIS_MATCH_WIN; parts.push("match W"); }
           if (setsWon > 0) { pts += setsWon * TENNIS_SET; parts.push(`${setsWon} sets`); }
-          if (isWinner && oppSets === 0 && setsWon > 0) { pts += TENNIS_STRAIGHT; parts.push("straight sets +5"); }
+          if (gamesWon > 0) { pts += gamesWon * TENNIS_GAME; parts.push(`${gamesWon} games`); }
+          if (isWinner && setsWon > 0 && setsWon === myLines.length) { pts += TENNIS_STRAIGHT; parts.push("straight sets +5"); }
+          if (tiebreaksWon > 0) { pts += tiebreaksWon * TENNIS_TIEBREAK; parts.push(`${tiebreaksWon} TB won`); }
+          if (bagels > 0) { pts += bagels * TENNIS_BAGEL; parts.push(`${bagels} bagel${bagels > 1 ? "s" : ""}`); }
+          if (isWinner && myLines[0] && !myLines[0].winner) { pts += TENNIS_COMEBACK; parts.push("comeback +4"); }
+          pts = Math.round(pts * 10) / 10;
           if (pts > 0) {
             ptMap.set(poolName, (ptMap.get(poolName) || 0) + pts);
             lineMap.set(poolName, [...(lineMap.get(poolName) || []), parts.join(", ")]);
@@ -849,7 +872,11 @@ async function seedDemo(pool) {
       } else if (p.sp === "GOLF") {
         const pos = rnd(1, 50); pts = golfPoints(pos); line = `position ${pos} (demo)`;
       } else if (p.sp === "TEN") {
-        const w = rnd(0, 1); const dSets = w ? rnd(2, 3) : rnd(0, 2); pts = w * TENNIS_MATCH_WIN + dSets * TENNIS_SET + (w && dSets >= 2 && rnd(0,1) ? TENNIS_STRAIGHT : 0); line = w ? `match W, ${dSets} sets (demo)` : `lost, ${dSets} sets (demo)`;
+        const w = rnd(0, 1); const dSets = w ? rnd(2, 3) : rnd(0, 2);
+        const games = dSets * rnd(4, 7); const tb = rnd(0, 1); const bagel = rnd(0, 4) === 0 ? 1 : 0;
+        pts = w * TENNIS_MATCH_WIN + dSets * TENNIS_SET + games * TENNIS_GAME
+          + (w && dSets >= 2 && rnd(0, 1) ? TENNIS_STRAIGHT : 0) + tb * TENNIS_TIEBREAK + bagel * TENNIS_BAGEL;
+        line = w ? `match W, ${dSets} sets, ${games} games (demo)` : `lost, ${dSets} sets, ${games} games (demo)`;
         if (!w) continue;
       }
       await upsertScore(pool, d, p.sp, p.n, Math.round(pts * 10) / 10, line);
