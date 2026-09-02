@@ -309,6 +309,13 @@ function applyPick(st, p) {
   const idx = pickerIndex(st);
   st.picks.push({ seat: idx, player: p.n, pos: p.pos, sp: p.sp, tm: p.tm });
   st.seats[idx].roster.push({ n: p.n, pos: p.pos, sp: p.sp, tm: p.tm });
+  // Always stamp when the new turn began — not just when a pick timer is set. Used by the
+  // pick-timer countdown (when one exists) and by serverAutoDraft's Auto Draft grace period
+  // (every draft). Previously this was only set on manual/serverAutoDraft picks, never on bot
+  // picks — after a bot picked, the next human's turn inherited a stale, already-"expired"
+  // timestamp, so a timed draft could auto-draft a present, actively-clicking player's very
+  // next turn before they got a chance to act.
+  st.pickStartedAt = Date.now();
 }
 // UFC gets 8 days: off-day drafts pull the NEXT card (up to a week out), so the
 // window must stay open long enough to cover it. Pre-draft scores can't leak in
@@ -723,10 +730,8 @@ async function activateCountdown(code) {
     );
     if (!r.rows[0]) return; // already activated or draft gone
     const st = r.rows[0].state;
-    if (st.pickTimer) {
-      st.pickStartedAt = Date.now();
-      await pool.query("UPDATE drafts SET state=$1, updated=now() WHERE code=$2", [st, code]);
-    }
+    st.pickStartedAt = Date.now();
+    await pool.query("UPDATE drafts SET state=$1, updated=now() WHERE code=$2", [st, code]);
     broadcast(code).catch(console.error);
     console.log("Countdown-activated draft:", code);
   } catch (e) { console.error("activateCountdown", e.message); }
@@ -928,7 +933,7 @@ app.post("/api/draft/:code/pick", ah(async (req, res) => {
     finishDraft(st);
     lastNotifiedPick.delete(code);
     if (pendingPickNotify.has(code)) { clearTimeout(pendingPickNotify.get(code)); pendingPickNotify.delete(code); }
-  } else if (st.pickTimer) st.pickStartedAt = Date.now();
+  }
   // optimistic update: only write if no concurrent pick snuck in
   const upd = await pool.query(
     "UPDATE drafts SET state=$1, updated=now() WHERE code=$2 AND jsonb_array_length(state->'picks')=$3",
@@ -1316,23 +1321,30 @@ initDb().then(() => {
 
   // Server-side auto-draft, two independent triggers:
   //  1. the draft's pick timer expired (host-configured anti-stall setting), or
-  //  2. the current picker has "Auto Draft" turned on — auto-draft normally fires
-  //     client-side (fireAutoDraft), which only runs while that tab/app is open, so this
-  //     is the fallback that keeps a seat drafting once the app is closed or backgrounded.
-  // A live, connected client almost always wins the race (it fires in ~1.2s, this poller
-  // runs every 5s) — the picks-length-guarded UPDATE below just no-ops if it already did.
+  //  2. the current picker has "Auto Draft" turned on AND at least AUTO_GRACE_MS has passed
+  //     since their turn began — auto-draft normally fires client-side (fireAutoDraft, ~1.2s),
+  //     so this is the fallback that keeps a seat drafting once the app is closed or
+  //     backgrounded. The grace period matters: without it, an actively-present player whose
+  //     seat has autoDraft on (e.g. from a past timeout) would have their own manual clicks
+  //     raced and sometimes beaten by this poller, which looks exactly like "the draft button
+  //     doesn't work" — 8s is far more than a connected client needs, but still short enough
+  //     not to hold up anyone who's actually gone.
+  // A live, connected client almost always wins the race regardless — the picks-length-guarded
+  // UPDATE below just no-ops if it already did.
   //
   // The first time someone times out, their seat flips to Auto Draft for the rest of the
   // draft — otherwise every future round would make everyone else wait out their timer
   // again before the same fallback kicks in. They're notified and can turn it back off
   // themselves (the toggle) at any time if they come back.
+  const AUTO_GRACE_MS = 8000;
   async function serverAutoDraft(code, st) {
     try {
       if (st.status !== "active" || isDone(st)) return;
       const seat = st.seats[pickerIndex(st)];
       if (!seat || seat.bot) return; // bots have their own scheduler
       const timerExpired = st.pickTimer && st.pickStartedAt && st.pickStartedAt + st.pickTimer * 1000 <= Date.now();
-      if (!timerExpired && !seat.autoDraft) return;
+      const autoGraceElapsed = seat.autoDraft && st.pickStartedAt && Date.now() - st.pickStartedAt >= AUTO_GRACE_MS;
+      if (!timerExpired && !autoGraceElapsed) return;
       const pick = await pickBestAvailable(st);
       if (!pick) return;
       const prevLen = st.picks.length;
@@ -1343,7 +1355,7 @@ initDb().then(() => {
         finishDraft(st);
         lastNotifiedPick.delete(code);
         if (pendingPickNotify.has(code)) { clearTimeout(pendingPickNotify.get(code)); pendingPickNotify.delete(code); }
-      } else if (st.pickTimer) st.pickStartedAt = Date.now();
+      }
       const upd = await pool.query(
         "UPDATE drafts SET state=$1, updated=now() WHERE code=$2 AND jsonb_array_length(state->'picks')=$3",
         [st, code, prevLen]
