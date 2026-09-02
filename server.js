@@ -405,7 +405,7 @@ app.get("/api/me/:id", ah(async (req, res) => {
     const mine = st.entries.find((e) => e.userId === id);
     const alive = st.entries.filter((e) => e.alive);
     return {
-      code: p.code, name: st.name, status: st.status,
+      code: p.code, name: st.name, status: st.status, hostId: st.hostId,
       myAlive: mine ? mine.alive : null, myEliminatedWeek: mine ? mine.eliminatedWeek : null,
       weekKey: st.week.key, deadline: st.week.deadline, weekLocked: st.week.locked,
       aliveCount: alive.length, entryCount: st.entries.length,
@@ -1052,6 +1052,41 @@ app.post("/api/pool/:code/join", ah(async (req, res) => {
   } catch (e) { await client.query("ROLLBACK"); throw e; }
   finally { client.release(); }
   res.json(poolSafeState(st, userId));
+}));
+
+// host closes (deletes) a pool — any status, any time. Unlike drafts there's no
+// turn-order fairness concern to protect; this is squarely for "nobody joined" or
+// "made this by accident" cleanup.
+app.post("/api/pool/:code/close", ah(async (req, res) => {
+  const code = req.params.code.toUpperCase();
+  const { hostId } = req.body;
+  const r = await pool.query("SELECT state FROM pools WHERE code=$1", [code]);
+  const st = r.rows[0]?.state;
+  if (!st) return res.status(404).json({ error: "Pool not found" });
+  if (st.hostId !== hostId) return res.status(403).json({ error: "Only the host can close this pool" });
+  await pool.query("DELETE FROM pools WHERE code=$1", [code]);
+  res.json({ ok: true });
+}));
+
+// leave a pool before it locks — after the first week locks, entries (and exits) are
+// frozen for the rest of the pool, same as entries closing to new joiners
+app.post("/api/pool/:code/leave", ah(async (req, res) => {
+  const code = req.params.code.toUpperCase();
+  const { userId } = req.body;
+  const r = await pool.query("SELECT state FROM pools WHERE code=$1", [code]);
+  const st = r.rows[0]?.state;
+  if (!st) return res.status(404).json({ error: "Pool not found" });
+  if (st.status !== "open") return res.status(400).json({ error: "This pool has already started — picks are locked in for the rest of it" });
+  st.entries = st.entries.filter((e) => e.userId !== userId);
+  if (st.hostId === userId) {
+    if (!st.entries.length) {
+      await pool.query("DELETE FROM pools WHERE code=$1", [code]);
+      return res.json({ ok: true });
+    }
+    st.hostId = st.entries[0].userId; // hand host to the next entrant so the pool isn't orphaned
+  }
+  await pool.query("UPDATE pools SET state=$1, participants=array_remove(participants,$2), updated=now() WHERE code=$3", [st, userId, code]);
+  res.json({ ok: true });
 }));
 
 app.post("/api/pool/:code/pick", ah(async (req, res) => {

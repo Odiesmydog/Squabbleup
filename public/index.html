@@ -638,7 +638,10 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
   <section class="screen" id="scrPoolDetail">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
       <button class="mini" data-nav="pools">‹ My pools</button>
-      <button class="mini" id="sharePool">📤 Invite</button>
+      <div style="display:flex;gap:8px">
+        <button class="mini" id="sharePool">📤 Invite</button>
+        <button class="mini" id="poolCloseBtn" style="display:none;background:var(--raised);color:var(--red)"></button>
+      </div>
     </div>
     <h1 class="title" id="poolDetailTitle">Pool</h1>
     <div id="poolStatusStrip" class="poolStatusStrip"></div>
@@ -1330,14 +1333,19 @@ function poolCardHtml(p) {
   const statusPill = p.status === "complete" ? `<span class="poolPill win">🏆 DONE</span>`
     : p.myAlive === false ? `<span class="poolPill dead">OUT — wk ${esc(String(p.myEliminatedWeek || ""))}</span>`
     : `<span class="poolPill alive">ALIVE</span>`;
+  const isHost = p.hostId === me.id;
+  // host can always clean up; a non-host can only leave while entries are still open
+  const action = (isHost || p.status === "open")
+    ? `<button class="cardX" data-pool-close="${esc(p.code)}" data-pool-close-host="${isHost ? "1" : "0"}">✕</button>` : "";
   return `<div class="dCard">
     <div class="dCardClick" data-pool="${esc(p.code)}">
       <span style="font-size:26px">🏈</span>
       <div class="info"><div class="nm">${esc(p.name)}</div><div class="st go">${lockTxt}</div>
         <div style="margin-top:4px">${statusPill} <span style="font-size:11px;color:var(--dim);margin-left:6px">${p.aliveCount}/${p.entryCount} alive</span>${p.handshake ? ` <span class="poolPill" style="background:rgba(168,85,247,.18);color:var(--purple)">🤝 ${esc(p.handshake.stake)}</span>` : ""}</div>
       </div>
-      <span style="font-size:18px;color:var(--dim)">▶</span>
+      ${!action ? `<span style="font-size:18px;color:var(--dim)">▶</span>` : ""}
     </div>
+    ${action}
   </div>`;
 }
 
@@ -1451,6 +1459,32 @@ function renderPoolDetail() {
     : `<span class="poolPill dead">🔴 You're out — Week ${esc(String(mine.eliminatedWeek || ""))}</span>`;
   $("poolStatusStrip").innerHTML = `${myPill}<span class="poolPill" style="background:var(--raised);color:var(--text)">${alive.length} of ${st.entries.length} still alive</span>`;
 
+  // host can always close (delete) the pool — no fairness concern like a draft's turn
+  // order, this exists for "nobody joined" / "made it by accident" cleanup. Non-host
+  // entrants can leave any time before the first week locks; after that, entries (and
+  // exits) are frozen for the rest of the pool.
+  const isHost = st.hostId === me.id;
+  const closeBtn = $("poolCloseBtn");
+  if (isHost) {
+    closeBtn.style.display = "inline-flex";
+    closeBtn.textContent = "Close pool ✕";
+    closeBtn.onclick = async () => {
+      if (!confirm(st.entries.length > 1 ? "Close this pool for everyone in it? This can't be undone." : "Close this pool?")) return;
+      try { await api(`/api/pool/${st.code}/close`, { hostId: me.id }); toast("Pool closed"); closePoolDetail(); loadPoolsHub(); show("scrPools"); }
+      catch {}
+    };
+  } else if (st.status === "open") {
+    closeBtn.style.display = "inline-flex";
+    closeBtn.textContent = "Leave pool ✕";
+    closeBtn.onclick = async () => {
+      if (!confirm("Leave this pool?")) return;
+      try { await api(`/api/pool/${st.code}/leave`, { userId: me.id }); toast("Left the pool"); closePoolDetail(); loadPoolsHub(); show("scrPools"); }
+      catch {}
+    };
+  } else {
+    closeBtn.style.display = "none";
+  }
+
   const hs = st.handshake;
   $("poolHandshakeBox").style.display = hs ? "block" : "none";
   if (hs) {
@@ -1554,7 +1588,20 @@ $("poolHsAgreeBtn").addEventListener("click", async () => {
   try { await api(`/api/pool/${_poolCode}/handshake`, { userId: me.id }); await refreshPoolDetail(); }
   catch (e) { toast(e.message); $("poolHsAgreeBtn").disabled = false; }
 });
-document.addEventListener("click", (e) => {
+document.addEventListener("click", async (e) => {
+  const closeBtn = e.target.closest("[data-pool-close]");
+  if (closeBtn) {
+    e.stopPropagation();
+    const code = closeBtn.getAttribute("data-pool-close");
+    const isHost = closeBtn.getAttribute("data-pool-close-host") === "1";
+    if (!confirm(isHost ? "Close this pool?" : "Leave this pool?")) return;
+    try {
+      await api(`/api/pool/${code}/${isHost ? "close" : "leave"}`, isHost ? { hostId: me.id } : { userId: me.id });
+      toast(isHost ? "Pool closed" : "Left the pool");
+      loadPoolsHub();
+    } catch {}
+    return;
+  }
   const p = e.target.closest("[data-pool]")?.getAttribute("data-pool");
   if (p) { openPoolDetail(p); return; }
   const pi = e.target.closest("[data-pool-invite]")?.getAttribute("data-pool-invite");
