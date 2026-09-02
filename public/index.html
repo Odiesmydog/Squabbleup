@@ -777,7 +777,10 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
 <script>
 // ================= helpers =================
 const $ = (id) => document.getElementById(id);
-const show = (id) => { document.querySelectorAll(".screen").forEach((s) => s.classList.remove("on")); $(id).classList.add("on"); };
+// switching screens swaps display:none/block on the same scroll container, so without
+// resetting scroll position a new (often shorter) screen renders wherever the old one had
+// scrolled to — landing at the bottom of a fresh screen with nothing to see above the fold
+const show = (id) => { document.querySelectorAll(".screen").forEach((s) => s.classList.remove("on")); $(id).classList.add("on"); window.scrollTo(0, 0); };
 const esc = (s) => String(s).replace(/[<>&"]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;" }[c]));
 const avHtml = (p, cls = "av") => `<span class="${cls}">${p.img ? `<img src="${esc(p.img)}" alt="" onerror="this.remove()" />` : (p.av || "🙂")}</span>`;
 let toastT;
