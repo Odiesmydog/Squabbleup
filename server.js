@@ -425,9 +425,18 @@ app.post("/api/draft/create", ah(async (req, res) => {
   for (;;) { code = code6(); const c = await pool.query("SELECT 1 FROM drafts WHERE code=$1", [code]); if (!c.rows.length) break; }
   const { pickTimer: rawTimer } = req.body;
   const pickTimer = [0, 30, 60, 90, 120, 180, 300].includes(+rawTimer) ? +rawTimer : 0;
+  const normSport = ["NFL","NBA","MLB","NHL","GOLF","TEN","CBB","CFB","UFC","WCUP","SOC"].includes(sport) ? sport : "NFL";
+  // scopes the draftable pool to specific games (e.g. one CFB Saturday has 60+ games).
+  // Team-based sports: array of team abbreviations. UFC/tennis (INDIVIDUAL_SPORTS, no
+  // shared team): array of player names instead — don't force-case or over-truncate those.
+  const gameFilterClean = Array.isArray(gameFilter) && gameFilter.length > 0
+    ? gameFilter.filter((t) => typeof t === "string" && t.length > 0)
+        .map((t) => scoring.INDIVIDUAL_SPORTS.has(normSport) ? t.slice(0, 80) : t.toUpperCase().slice(0, 6))
+        .slice(0, 128)
+    : null;
   const state = {
     code, name: String(name || "Squabble").slice(0, 24),
-    sport: ["NFL","NBA","MLB","NHL","GOLF","TEN","CBB","CFB","UFC","WCUP","SOC"].includes(sport) ? sport : "NFL",
+    sport: normSport,
     rounds: [3, 6].includes(+rounds) ? +rounds : 3,
     status: "lobby", hostId,
     public: isPublic === true,
@@ -436,11 +445,7 @@ app.post("/api/draft/create", ah(async (req, res) => {
     seats: [{ userId: hostId, name: u.name, av: u.av, img: u.img, bot: false, roster: [] }],
     picks: [], chat: [],
     handshake: handshake?.stake ? { stake: String(handshake.stake).slice(0, 60), agreed: [] } : null,
-    // scopes the draftable pool to specific games (e.g. one CFB Saturday has 60+ games) —
-    // an array of team abbreviations; null/absent means every game on the slate is in
-    gameFilter: Array.isArray(gameFilter) && gameFilter.length > 0
-      ? gameFilter.filter((t) => typeof t === "string").map((t) => t.toUpperCase().slice(0, 6)).slice(0, 64)
-      : null,
+    gameFilter: gameFilterClean,
   };
   await pool.query("INSERT INTO drafts (code, state, participants) VALUES ($1,$2,$3)", [code, state, [hostId]]);
   pool.query("UPDATE stats SET val = val + 1 WHERE key='drafts_created'").catch(() => {});
@@ -846,7 +851,8 @@ app.post("/api/draft/:code/pick", ah(async (req, res) => {
     const rp = (sched.roster || []).find((x) => x.n === player);
     if (rp?.livelock)
       return res.status(400).json({ error: `${player} already started playing — pick someone whose game hasn't begun` });
-    if (st.gameFilter && rp?.tm && !st.gameFilter.includes(rp.tm))
+    const filterKey = scoring.INDIVIDUAL_SPORTS.has(st.sport) ? player : rp?.tm;
+    if (st.gameFilter && filterKey && !st.gameFilter.includes(filterKey))
       return res.status(400).json({ error: `${player}'s game wasn't included in this draft` });
   }
   let p = PLAYERS.find((x) => x.n === player && (st.sport === "ALL" || x.sp === st.sport));

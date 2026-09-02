@@ -1203,7 +1203,10 @@ async function checkGolfBlock() {
 }
 // game picker (2+ games on the slate) — lets the host scope the draft to specific
 // games instead of dumping every game's roster into one giant, unordered pool
-const GAME_PICKER_SPORTS = new Set(["NFL", "CFB", "NBA", "CBB", "MLB", "NHL"]);
+const GAME_PICKER_SPORTS = new Set(["NFL", "CFB", "NBA", "CBB", "MLB", "NHL", "SOC", "WCUP", "UFC", "TEN"]);
+// UFC/tennis have no shared "team" to group a game by — the picker keys their matchups by
+// each player's own name instead (see scoring.js), so the filter has to check p.n, not p.tm
+const INDIVIDUAL_SPORTS = new Set(["UFC", "TEN"]);
 let wizGames = []; // [{label, teams: [abbr,...]}]
 let wizSelectedGames = new Set(); // indices into wizGames
 let _gameCheckSeq = 0;
@@ -1687,7 +1690,7 @@ function availPlayers() {
     .filter((p) => !taken.has(p.n))
     .filter((p) => draft.sport === "ALL" || p.sp === draft.sport)
     .filter((p) => !todaysPlayers || todaysPlayers.has(p.n))
-    .filter((p) => !draft.gameFilter || draft.gameFilter.includes(p.tm))
+    .filter((p) => !draft.gameFilter || draft.gameFilter.includes(INDIVIDUAL_SPORTS.has(draft.sport) ? p.n : p.tm))
     .filter((p) => posFilter === "All" || p.pos === posFilter)
     .filter((p) => p.n.toLowerCase().includes(q));
   return filtered.sort((a, b) => {

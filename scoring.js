@@ -217,7 +217,7 @@ async function _fetchSchedule(sport) {
         if (!sb.events?.length) continue;
         const future = i > 0;
         const dateLbl = future ? d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "America/New_York" }) : "";
-        const names = new Set(); const roster = [];
+        const names = new Set(); const roster = []; const matchups = {};
         for (const ev of sb.events || []) {
           const evName = ev.shortName || ev.name || "UFC";
           for (const comp of ev.competitions || []) {
@@ -236,10 +236,14 @@ async function _fetchSchedule(sport) {
             names.add(aN); names.add(bN);
             roster.push({ n: aN, pos, tm: "vs " + short(bN), sp: "UFC", rec: recStr(cs[0]), ...(evTag ? { ev: "vs " + short(bN) + evTag } : {}), ...(livelock ? { livelock: true } : {}) });
             roster.push({ n: bN, pos, tm: "vs " + short(aN), sp: "UFC", rec: recStr(cs[1]), ...(evTag ? { ev: "vs " + short(aN) + evTag } : {}), ...(livelock ? { livelock: true } : {}) });
+            // UFC has no shared "team" to group a fight by — key the game picker by each
+            // fighter's own name instead (see INDIVIDUAL_SPORTS on the client)
+            const fightLabel = `${aN} vs ${bN}`;
+            matchups[aN] = fightLabel; matchups[bN] = fightLabel;
           }
         }
         // card found but every fight finished (late night) — keep looking ahead
-        if (names.size > 0) return { players: names, matchups: {}, roster };
+        if (names.size > 0) return { players: names, matchups, roster };
       }
       return { players: new Set(), matchups: {}, roster: [] }; // no card in 14 days — nothing draftable
     } catch { return { players: null, matchups: {}, roster: [] }; }
@@ -271,6 +275,10 @@ async function _fetchSchedule(sport) {
               if (!nameA || !nameB || nameA === "TBD" || nameB === "TBD") continue;
               const livelock = state === "in";
               found++;
+              // tennis has no shared "team" to group a match by — key the game picker by
+              // each player's own name instead (see INDIVIDUAL_SPORTS on the client)
+              const matchLabel = `${nameA} vs ${nameB} · ${tournName}`;
+              matchups[nameA] = matchLabel; matchups[nameB] = matchLabel;
               if (!names.has(nameA)) {
                 names.add(nameA);
                 roster.push({ n: nameA, pos, tm: "TEN", sp: "TEN",
@@ -996,4 +1004,8 @@ async function sleeperEnrich(sport, playerNames) {
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
-module.exports = { pollAll, draftScores, draftScoreDetail, projectedScores, sleeperEnrich, seedDemo, scoreSummary, todaysTeams, todaysPoolPlayers, todaysSchedule, nextGameDay, RULES, FAMILY, golfPoints, matchPool, buildPoolIndex, norm };
+// UFC/tennis have no shared "team" — matchups are keyed by each player's own name instead
+// (see the UFC/TEN branches of _fetchSchedule). Keep this in sync with the client's copy.
+const INDIVIDUAL_SPORTS = new Set(["UFC", "TEN"]);
+
+module.exports = { pollAll, draftScores, draftScoreDetail, projectedScores, sleeperEnrich, seedDemo, scoreSummary, todaysTeams, todaysPoolPlayers, todaysSchedule, nextGameDay, RULES, FAMILY, INDIVIDUAL_SPORTS, golfPoints, matchPool, buildPoolIndex, norm };
