@@ -223,10 +223,26 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
 .vsChip.vsL { background: var(--green); color: var(--ink); box-shadow: 0 3px 0 var(--green-d); }
 .vsChip.vsR { background: var(--purple); color: var(--text); box-shadow: 0 3px 0 var(--purple-d); }
 .vsChip.vsL .vsChipPts, .vsChip.vsR .vsChipPts { color: inherit; opacity: .8; }
+/* ── side pickers: explicit "who's on each side" dropdowns, no implicit shifting ── */
+.vsPickRow { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.vsSel {
+  flex: 1; min-width: 0; background: var(--panel); border: 1.5px solid var(--line); border-radius: 12px;
+  padding: 11px 12px; color: var(--text); font-family: var(--display); font-weight: 700; font-size: 13.5px;
+  appearance: none; -webkit-appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--dim) 50%), linear-gradient(135deg, var(--dim) 50%, transparent 50%);
+  background-position: calc(100% - 16px) center, calc(100% - 11px) center;
+  background-size: 5px 5px, 5px 5px; background-repeat: no-repeat;
+}
+.vsSel:focus-visible { border-color: var(--purple); }
+.vsVsTag { font-family: var(--display); font-size: 11px; font-weight: 800; color: var(--dim); letter-spacing: .5px; flex-shrink: 0; }
 .vsGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; background: var(--line); border-radius: var(--r); overflow: hidden; margin-bottom: 10px; }
 .vsHdr { background: var(--panel); padding: 14px 8px 12px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.vsHdr.vsWin { background: #0C2318; box-shadow: inset 0 0 0 1px #22E88F, 0 0 18px -6px #22E88F99; }
 .vsHdrName { font-family: var(--display); font-weight: 700; font-size: 13px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vsHdrPts { font-family: var(--display); font-weight: 700; font-size: 38px; color: var(--green); line-height: 1.05; }
+.vsHdr.vsWin .vsHdrPts { color: #4DFFB8; }
 .vsSubPts { font-size: 11px; color: var(--dim); }
+.vsCrown { font-size: 20px; margin-top: 2px; }
 .vsYou { font-size: 10px; color: var(--green); font-weight: 800; }
 .vsCell { background: var(--panel); padding: 9px 10px; min-width: 0; overflow: hidden; }
 .vsCell.vsAlt { background: var(--raised); }
@@ -237,22 +253,6 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
 .vsDimTxt { color: var(--dim); }
 .vsEmpty { color: var(--dim); font-size: 13px; }
 .vsLine { font-size: 10.5px; color: var(--dim); margin-top: 3px; line-height: 1.4; word-break: break-word; }
-/* ── matchup: ranked leaderboard, tap a row to expand their picks ── */
-.stList { display: flex; flex-direction: column; gap: 8px; margin-bottom: 4px; }
-.stRow { display: flex; align-items: center; gap: 10px; background: var(--panel); border-radius: var(--r); padding: 10px 12px; cursor: pointer; transition: transform .06s; }
-.stRow:active { transform: scale(.985); }
-.stRow.stWin { background: #0C2318; box-shadow: inset 0 0 0 1px #22E88F, 0 0 16px -4px #22E88F80; }
-.stRank { font-size: 15px; font-weight: 800; width: 26px; text-align: center; color: var(--dim); flex-shrink: 0; }
-.stRow.stWin .stRank { font-size: 19px; }
-.stInfo { flex: 1; min-width: 0; }
-.stName { font-family: var(--display); font-weight: 700; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.stPts { font-family: var(--display); font-weight: 700; font-size: 21px; color: var(--green); flex-shrink: 0; }
-.stRow.stWin .stPts { color: #4DFFB8; }
-.stChevron { font-size: 12px; color: var(--dim); flex-shrink: 0; transition: transform .15s; }
-.stRow.stOpen .stChevron { transform: rotate(180deg); }
-.stDetail { background: var(--raised); border-radius: var(--r); margin: -4px 0 8px; overflow: hidden; }
-.stPick { padding: 9px 12px; border-bottom: 1px solid var(--line); }
-.stPick:last-child { border-bottom: none; }
 .scoreNote { font-size: 11.5px; color: var(--dim); text-align: center; margin: 10px 0; }
 .noGamesBox { background: var(--raised); border-left: 3px solid var(--purple); border-radius: 8px; padding: 10px 13px; font-size: 12.5px; color: var(--dim); margin: 8px 0; line-height: 1.5; }
 .ruleGrid { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
@@ -1331,7 +1331,6 @@ function leaveDraft() {
   clearTimeout(_rndBannerT); _rndBannerT = null; _lastRound = 0;
   $("roundBanner").classList.remove("on");
   for (const k in vsSelection) delete vsSelection[k];
-  for (const k in vsExpanded) delete vsExpanded[k];
   // reset per-draft state so entering a new draft gets fresh data
   todaysPlayers = null; nextGameDay = null; todayMatchups = {}; todaysRoster = [];
   draftRoomProj = {}; playerStatus = {};
@@ -1922,8 +1921,7 @@ for (const [btn, inp] of [["lobbyChatSend", "lobbyChatIn"], ["roomChatSend", "ro
 
 // ================= matchup / scoring =================
 let scoresCache = {}, scoresDetail = {}, projCache = {}, scoresT = null;
-const vsSelection = {}; // targetId -> { left: seatIdx, right: seatIdx } (renderBoard only)
-const vsExpanded = {}; // targetId -> currently expanded seat index for renderMatchup, or null
+const vsSelection = {}; // targetId -> { left: seatIdx, right: seatIdx }
 async function fetchScores() {
   if (!draft || draft.local) return;
   try {
@@ -1954,7 +1952,6 @@ function seatTotals() {
     return a.i - b.i;
   });
 }
-const MEDALS = ["🥇", "🥈", "🥉"];
 function renderMatchup(targetId) {
   const rows = seatTotals();
   if (rows.length < 2) {
@@ -1962,56 +1959,80 @@ function renderMatchup(targetId) {
     return;
   }
 
-  // don't crown anyone before any real scoring exists (everyone still at 0, e.g. draft just started)
-  const started = rows.some((r) => r.pts !== 0);
+  // Initialize or validate selection
+  const sel = vsSelection[targetId] || (vsSelection[targetId] = { left: rows[0].i, right: rows[1].i });
+  if (!rows.find((r) => r.i === sel.left)) sel.left = rows[0].i;
+  if (!rows.find((r) => r.i === sel.right) || sel.right === sel.left)
+    sel.right = (rows.find((r) => r.i !== sel.left) || rows[1]).i;
 
-  // stay expanded on the same seat across re-renders (score refresh, etc), close if they left
-  let openSeat = vsExpanded[targetId];
-  if (openSeat != null && !rows.find((r) => r.i === openSeat)) openSeat = vsExpanded[targetId] = null;
+  const lData = rows.find((r) => r.i === sel.left) || rows[0];
+  const rData = rows.find((r) => r.i === sel.right) || rows[1];
+  const multi = rows.length >= 3;
 
-  const pickHtml = (p, idx) => {
-    const sc = scoresCache[p.n];
-    const pts = sc?.pts ?? 0;
-    const pr = projCache[p.n];
-    const ptsHtml = pts !== 0
-      ? `<span class="vsGreen">${pts > 0 ? "+" : ""}${pts.toFixed(1)}</span>`
-      : `<span class="vsDimTxt">—</span>`;
-    return `<div class="stPick">
-      <div class="vsRd">R${idx + 1}</div>
-      <div class="vsPn">${esc(p.n)}</div>
-      <div class="vsMeta">${p.sp} ${p.pos} · ${ptsHtml}${pr ? ` <span class="vsDimTxt">proj ${pr.proj.toFixed(1)}</span>` : ""}</div>
-      ${sc?.line ? `<div class="vsLine">${esc(sc.line)}</div>` : ""}
-    </div>`;
-  };
+  // ── side pickers (3+ drafters only) — explicit dropdowns instead of a chip you tap that
+  // implicitly shifts the old selection to the other side, which read as unpredictable ──
+  const opts = (excludeIdx) => rows.map((r) =>
+    `<option value="${r.i}" ${r.i === excludeIdx ? "disabled" : ""}>${esc(r.seat.name)} · ${r.pts.toFixed(1)}</option>`).join("");
+  const pickerHtml = multi
+    ? `<div class="vsPickRow">
+        <select class="vsSel" data-side="left">${opts(sel.right)}</select>
+        <span class="vsVsTag">VS</span>
+        <select class="vsSel" data-side="right">${opts(sel.left)}</select>
+      </div>`
+    : "";
 
-  const rowsHtml = rows.map((r, rank) => {
-    const isOpen = r.i === openSeat;
-    const isWin = started && rank === 0;
-    return `<div class="stRow${isWin ? " stWin" : ""}${isOpen ? " stOpen" : ""}" data-sti="${r.i}">
-      <div class="stRank">${started ? (MEDALS[rank] || `#${rank + 1}`) : `#${rank + 1}`}</div>
-      ${avHtml(r.seat)}
-      <div class="stInfo">
-        <div class="stName">${esc(r.seat.name)}${r.seat.userId === me.id ? ' <span class="vsYou">YOU</span>' : ""}</div>
-        ${r.proj > 0 ? `<div class="vsSubPts">proj ${r.proj.toFixed(1)}</div>` : ""}
-      </div>
-      <div class="stPts">${r.pts.toFixed(1)}</div>
-      <div class="stChevron">▾</div>
-    </div>
-    <div class="stDetail" style="display:${isOpen ? "block" : "none"}">
-      ${r.seat.roster.length ? r.seat.roster.map(pickHtml).join("") : '<div class="stPick"><span class="vsEmpty">No picks yet</span></div>'}
-    </div>`;
+  // ── column headers ──
+  // seatTotals() already produces a fully deterministic order (never a true tie), so the
+  // winner is simply whichever of the two sits first in `rows` — but don't crown anyone
+  // before any real scoring exists (both sides still at 0, e.g. draft just started)
+  const started = lData.pts > 0 || rData.pts > 0;
+  const lWin = started && rows.indexOf(lData) < rows.indexOf(rData);
+  const rWin = started && rows.indexOf(rData) < rows.indexOf(lData);
+  const hdr = (d, win) => `<div class="vsHdr${win ? " vsWin" : ""}">
+    ${avHtml(d.seat)}
+    <div class="vsHdrName">${esc(d.seat.name)}${d.seat.userId === me.id ? ' <span class="vsYou">YOU</span>' : ""}</div>
+    <div class="vsHdrPts">${d.pts.toFixed(1)}</div>
+    ${d.proj > 0 ? `<div class="vsSubPts">proj ${d.proj.toFixed(1)}</div>` : ""}
+    ${win ? `<div class="vsCrown">👑</div>` : ""}
+  </div>`;
+
+  // ── pick rows (one grid row per draft round) ──
+  const maxLen = Math.max(lData.seat.roster.length, rData.seat.roster.length);
+  const pickRows = Array.from({ length: maxLen }, (_, i) => {
+    const alt = i % 2 === 1 ? " vsAlt" : "";
+    const cell = (p) => {
+      if (!p) return `<div class="vsCell${alt}"><span class="vsEmpty">—</span></div>`;
+      const sc = scoresCache[p.n];
+      const pts = sc?.pts ?? 0;
+      const pr = projCache[p.n];
+      const ptsHtml = pts !== 0
+        ? `<span class="vsGreen">${pts > 0 ? "+" : ""}${pts.toFixed(1)}</span>`
+        : `<span class="vsDimTxt">—</span>`;
+      return `<div class="vsCell${alt}">
+        <div class="vsRd">R${i + 1}</div>
+        <div class="vsPn">${esc(p.n)}</div>
+        <div class="vsMeta">${p.sp} ${p.pos} · ${ptsHtml}${pr ? ` <span class="vsDimTxt">proj ${pr.proj.toFixed(1)}</span>` : ""}</div>
+        ${sc?.line ? `<div class="vsLine">${esc(sc.line)}</div>` : ""}
+      </div>`;
+    };
+    return cell(lData.seat.roster[i]) + cell(rData.seat.roster[i]);
   }).join("");
 
-  $(targetId).innerHTML = `<div class="stList">${rowsHtml}</div>` +
-    `<div class="scoreNote">Tap a drafter to see their picks · proj = 30-day avg · updates every 5 min${draft.scoring ? ` · ends ${new Date(draft.scoring.end).toLocaleDateString()}` : ""}</div>`;
+  $(targetId).innerHTML = pickerHtml +
+    `<div class="vsGrid">${hdr(lData, lWin)}${hdr(rData, rWin)}${pickRows}</div>` +
+    `<div class="scoreNote">${multi ? "Pick anyone above to compare · " : ""}proj = 30-day avg · updates every 5 min${draft.scoring ? ` · ends ${new Date(draft.scoring.end).toLocaleDateString()}` : ""}</div>`;
 
-  $(targetId).querySelectorAll(".stRow").forEach((row) => {
-    row.addEventListener("click", () => {
-      const i = +row.getAttribute("data-sti");
-      vsExpanded[targetId] = vsExpanded[targetId] === i ? null : i;
-      renderMatchup(targetId);
+  // ── dropdown change: pick a side, pick who's on it — no implicit shifting ──
+  if (multi) {
+    $(targetId).querySelectorAll(".vsSel").forEach((selEl) => {
+      selEl.value = selEl.getAttribute("data-side") === "left" ? sel.left : sel.right;
+      selEl.addEventListener("change", (e) => {
+        const side = e.target.getAttribute("data-side");
+        sel[side] = +e.target.value;
+        renderMatchup(targetId);
+      });
     });
-  });
+  }
 }
 
 // ================= results =================
