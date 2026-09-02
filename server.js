@@ -410,6 +410,17 @@ app.post("/api/draft/create", ah(async (req, res) => {
   const { hostId, sport, rounds, name, handshake, public: isPublic } = req.body;
   const u = (await pool.query("SELECT * FROM users WHERE id=$1", [hostId])).rows[0];
   if (!u) return res.status(404).json({ error: "register first" });
+  // Golf has no per-team roster to fall back on like other sports — when ESPN hasn't
+  // published the tournament field yet, the only "pool" would be a handful of notable
+  // names with no guarantee they're even entered in the next event. Block instead of
+  // letting people draft players who might score zero because they're not playing at all.
+  if (sport === "GOLF") {
+    const sched = await scoring.todaysSchedule("GOLF").catch(() => null);
+    if (!sched?.players) {
+      const next = await scoring.nextGameDay("GOLF").catch(() => null);
+      return res.status(400).json({ error: next ? `No golf field published yet — check back closer to ${next}` : "No upcoming golf tournament found right now" });
+    }
+  }
   let code;
   for (;;) { code = code6(); const c = await pool.query("SELECT 1 FROM drafts WHERE code=$1", [code]); if (!c.rows.length) break; }
   const { pickTimer: rawTimer } = req.body;

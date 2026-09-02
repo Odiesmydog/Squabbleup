@@ -538,6 +538,7 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
       <button class="choice" data-tm="120">2:00</button>
       <button class="choice" data-tm="180">3:00</button>
     </div>
+    <div class="noGamesBox" id="golfBlockNote" style="display:none"></div>
     <button class="big gold" id="createDraft" style="margin-top:16px">Create draft room</button>
     <p class="note" id="createNote">You'll get a room code + link to send your friends. Up to 8 drafters.</p>
     <p class="note" id="publicNote" style="display:none;color:var(--dim)">⏱ Public rooms auto-start when full (8 players) or auto-close after 1 hour if not started.</p>
@@ -873,6 +874,7 @@ $("newDraft").addEventListener("click", () => {
   $("hsSection").style.display = "";
   $("hsStakeIn").value = "";
   $("createNote").style.display = ""; $("publicNote").style.display = "none";
+  checkGolfBlock();
   show("scrNew");
 });
 function loadHome() { gotoTab(curTab in TABSCR ? curTab : "home"); }
@@ -1163,10 +1165,29 @@ $("deleteAccountBtn").addEventListener("click", async () => {
 
 // ================= wizard =================
 let wizSport = "NFL", wizRounds = 3, wizPublic = false, wizTimer = 0;
+// golf has no static-list pre-draft fallback (see /api/draft/create) — warn and block
+// creation up front instead of letting someone fill out the whole wizard for nothing
+let _golfCheckSeq = 0;
+async function checkGolfBlock() {
+  const note = $("golfBlockNote"), btn = $("createDraft");
+  if (wizSport !== "GOLF") { note.style.display = "none"; btn.disabled = false; return; }
+  const seq = ++_golfCheckSeq;
+  try {
+    const sched = await api("/api/schedule/GOLF");
+    if (seq !== _golfCheckSeq || wizSport !== "GOLF") return; // sport changed while awaiting
+    if (sched.players) { note.style.display = "none"; btn.disabled = false; return; }
+    note.textContent = sched.nextDay
+      ? `⛳ No golf field published yet — next tournament ${sched.nextDay}. Check back closer to then.`
+      : "⛳ No upcoming golf tournament found right now.";
+    note.style.display = "block";
+    btn.disabled = true;
+  } catch { if (seq === _golfCheckSeq) { note.style.display = "none"; btn.disabled = false; } }
+}
 $("sportGrid").addEventListener("click", (e) => {
   const b = e.target.closest(".choice"); if (!b) return;
   document.querySelectorAll("#sportGrid .choice").forEach((c) => c.classList.remove("sel"));
   b.classList.add("sel"); wizSport = b.getAttribute("data-sp");
+  checkGolfBlock();
 });
 $("roundGrid").addEventListener("click", (e) => {
   const b = e.target.closest(".choice"); if (!b) return;
@@ -2130,8 +2151,22 @@ $("localBot").addEventListener("click", () => {
   lAddSeat(["RoboRick","DraftDroid","SnakeBot","AutoAndy","ChipChip","BeepBoop"].find((b) => !used.includes(b)) || "Bot", true);
 });
 $("localCancel").addEventListener("click", () => $("localModal").classList.remove("on"));
-$("localStart").addEventListener("click", () => {
+$("localStart").addEventListener("click", async (e) => {
   if (lWiz.seats.length < 2) { toast("Add at least one friend or bot"); return; }
+  // local drafts never hit the server at creation time, so the golf field-availability
+  // check (normally enforced by /api/draft/create) has to happen here instead
+  if (lWiz.sport === "GOLF") {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    try {
+      const sched = await api("/api/schedule/GOLF");
+      if (!sched.players) {
+        toast(sched.nextDay ? `No golf field published yet — check back closer to ${sched.nextDay}` : "No upcoming golf tournament found right now");
+        return;
+      }
+    } catch { toast("Couldn't check the golf schedule — try again"); return; }
+    finally { btn.disabled = false; }
+  }
   const d = {
     local: true, name: SPORTNAMES[lWiz.sport] + " squabble", sport: lWiz.sport, rounds: lWiz.rounds,
     status: "active", seats: lWiz.seats, picks: [], chat: [], code: "LOCAL",
