@@ -516,6 +516,8 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
     <div id="friendsList"></div>
     <div class="stepLbl">Notifications</div>
     <button class="big flat" id="enablePushBtn" style="margin-bottom:14px">🔔 Enable pick notifications</button>
+    <div class="stepLbl">App</div>
+    <button class="big flat" id="installAppBtn" style="margin-bottom:14px">📲 Install app</button>
     <div class="stepLbl">How your account works</div>
     <div class="bCol" style="cursor:default">
       <div class="bPick"><span>No password, no email. This device is your login — your profile, drafts, friends and chats are saved on SquabbleUP's servers under an ID this browser remembers.</span></div>
@@ -2507,14 +2509,38 @@ function _showInstallBanner(type) {
     <button class="iClose" id="installClose">✕</button>`;
   document.body.appendChild(el);
   $("installClose").addEventListener("click", () => { el.remove(); _dismissInstall(); });
-  if (!ios) $("installBtn").addEventListener("click", async () => {
-    if (!_deferredInstall) return;
-    _deferredInstall.prompt();
-    const { outcome } = await _deferredInstall.userChoice;
-    if (outcome === "accepted") { el.remove(); _dismissInstall(); }
-    _deferredInstall = null;
-  });
+  if (!ios) $("installBtn").addEventListener("click", () => triggerInstall(el));
 }
+
+// Shared by the auto-shown banner's button and the always-available "Install app" row in
+// Profile. The banner only ever appears once per 30 days after a dismiss (or not at all, if
+// the browser never fires beforeinstallprompt — that's a real, fairly common gap: Chrome
+// withholds it until its own per-visitor engagement heuristic is met, which a first-time
+// visitor arriving via a shared draft link often hasn't cleared yet), so this needs a path
+// that works even with no captured prompt, and needs to fail loudly instead of doing
+// nothing — a bare `.prompt()` call with no try/catch just silently swallowed errors before,
+// which is exactly what "the install button doesn't work" looks like from the outside.
+async function triggerInstall(bannerEl) {
+  if (_isStandalone) { toast("Already installed — check your home screen!"); return; }
+  if (_deferredInstall) {
+    try {
+      await _deferredInstall.prompt();
+      const { outcome } = await _deferredInstall.userChoice;
+      if (outcome === "accepted") { bannerEl?.remove(); _dismissInstall(); toast("Installing…"); }
+    } catch {
+      toast("Install prompt failed — try your browser menu instead");
+    } finally {
+      _deferredInstall = null;
+    }
+    return;
+  }
+  if (_isIOS) {
+    toast("Tap Share ↑ then \"Add to Home Screen\"");
+    return;
+  }
+  toast("Open your browser menu (⋮ or ···) and look for \"Install app\" or \"Add to Home screen\"");
+}
+$("installAppBtn").addEventListener("click", () => triggerInstall(null));
 
 // Push notifications
 async function setupPush() {
