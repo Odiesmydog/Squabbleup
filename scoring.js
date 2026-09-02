@@ -425,14 +425,14 @@ async function _fetchSchedule(sport) {
   }
   const pair = LEAGUES[sport];
   if (!pair) return { players: null, matchups: {}, roster: [] };
-  const day = etDateStr();
-  try {
-    const sb = await jget(`https://site.api.espn.com/apis/site/v2/sports/${pair[0]}/${pair[1]}/scoreboard?dates=${day}`);
-    if (!sb.events?.length) return { players: null, matchups: {}, roster: [] };
+  // known positions from static list take priority over ESPN's generic G/F/C
+  const knownPos = new Map(PLAYERS.map((p) => [p.n, p.pos]));
+  const MLB_PITCHER_POS = new Set(["SP", "RP", "P", "LHP", "RHP"]);
+  // Turns one day's scoreboard into a pool. Returns null (not an empty pool) when the day
+  // has nothing draftable — e.g. every game already finished — so the caller knows to keep
+  // looking ahead instead of settling for an empty result on a day that "had events".
+  async function processDay(sb) {
     const names = new Set(); const matchups = {}; const roster = [];
-    // known positions from static list take priority over ESPN's generic G/F/C
-    const knownPos = new Map(PLAYERS.map((p) => [p.n, p.pos]));
-    // MLB: collect today's probable starters so we don't show pitchers who aren't pitching
     const probablePitchers = new Set();
     if (sport === "MLB") {
       for (const ev of sb.events || []) {
@@ -442,7 +442,6 @@ async function _fetchSchedule(sport) {
         }
       }
     }
-    const MLB_PITCHER_POS = new Set(["SP", "RP", "P", "LHP", "RHP"]);
     for (const ev of sb.events || []) {
       // MLB: only games not yet started. All other sports keep in-progress games
       // visible but livelock their players — you can't draft someone mid-game.
@@ -493,7 +492,27 @@ async function _fetchSchedule(sport) {
           .forEach((p) => { names.add(p.n); roster.push({ ...p, ...(livelock ? { livelock: true } : {}) }); });
       }
     }
-    return { players: names.size > 0 ? names : null, matchups, roster };
+    return names.size > 0 ? { players: names, matchups, roster } : null;
+  }
+  try {
+    const sb = await jget(`https://site.api.espn.com/apis/site/v2/sports/${pair[0]}/${pair[1]}/scoreboard?dates=${etDateStr()}`);
+    const today = await processDay(sb);
+    if (today) return { ...today, futureDate: null };
+    // nothing draftable today (no events, or every game already finished/started) — look
+    // ahead for the next real slate instead of falling back to a static "top players
+    // league-wide" list that has no connection to who's actually playing when
+    for (let i = 1; i <= 14; i++) {
+      const d = etDateObj(i);
+      let fsb;
+      try { fsb = await jget(`https://site.api.espn.com/apis/site/v2/sports/${pair[0]}/${pair[1]}/scoreboard?dates=${dstr(d)}`); }
+      catch { continue; }
+      const future = await processDay(fsb);
+      if (future) {
+        const futureDate = d.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric", timeZone: "America/New_York" });
+        return { ...future, futureDate };
+      }
+    }
+    return { players: null, matchups: {}, roster: [] };
   } catch { return { players: null, matchups: {}, roster: [] }; }
 }
 

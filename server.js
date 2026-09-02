@@ -753,9 +753,9 @@ app.get("/api/draft/:code/projected", ah(async (req, res) => {
 // teams playing today for a sport — used to filter draft pool
 app.get("/api/schedule/:sport", ah(async (req, res) => {
   const sport = req.params.sport.toUpperCase();
-  const { players, matchups, roster } = await scoring.todaysSchedule(sport);
+  const { players, matchups, roster, futureDate } = await scoring.todaysSchedule(sport);
   const nextDay = players ? null : await scoring.nextGameDay(sport);
-  res.json({ players: players ? [...players] : null, matchups, roster: roster || [], nextDay });
+  res.json({ players: players ? [...players] : null, matchups, roster: roster || [], nextDay, futureDate: futureDate || null });
 }));
 
 app.get("/api/projected/:sport", ah(async (req, res) => {

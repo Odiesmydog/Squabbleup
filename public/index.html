@@ -1230,7 +1230,7 @@ $("createDraft").addEventListener("click", async (e) => {
 // ================= draft connection =================
 let draft = null, ws = null, pollT = null, posFilter = "All", q = "", activeTab = "pick", unreadChat = false, lastChatLen = 0, _shuffling = false;
 let _connected = false, _lobbyExpiry = null, _autoDraft = false, _autoDraftT = null, _pickTimerT = null, _lobbyTimerT = null, _lastPickCount = -1, _wsReconnectT = null, _rosterRefreshT = null, _lastRound = 0, _rndBannerT = null;
-let todaysPlayers = null, nextGameDay = null, todayMatchups = {}, draftRoomProj = {}, playerStatus = {}, todaysRoster = [];
+let todaysPlayers = null, nextGameDay = null, todayMatchups = {}, draftRoomProj = {}, playerStatus = {}, todaysRoster = [], scheduleFutureDate = null;
 // Precomputed rank map — built once from static PLAYERS list
 const RANK_MAP = new Map(PLAYERS.map((p) => [p.n, p.r]));
 async function fetchTodaysTeams(sport) {
@@ -1243,9 +1243,10 @@ async function fetchTodaysTeams(sport) {
     nextGameDay = sched.nextDay || null;
     todayMatchups = sched.matchups || {};
     todaysRoster = sched.roster || [];
+    scheduleFutureDate = sched.futureDate || null;
     draftRoomProj = enriched.proj || {};
     playerStatus = enriched.status || {};
-  } catch { todaysPlayers = null; nextGameDay = null; todayMatchups = {}; todaysRoster = []; draftRoomProj = {}; playerStatus = {}; }
+  } catch { todaysPlayers = null; nextGameDay = null; todayMatchups = {}; todaysRoster = []; scheduleFutureDate = null; draftRoomProj = {}; playerStatus = {}; }
 }
 
 async function joinByCode(code) {
@@ -1332,7 +1333,7 @@ function leaveDraft() {
   $("roundBanner").classList.remove("on");
   for (const k in vsSelection) delete vsSelection[k];
   // reset per-draft state so entering a new draft gets fresh data
-  todaysPlayers = null; nextGameDay = null; todayMatchups = {}; todaysRoster = [];
+  todaysPlayers = null; nextGameDay = null; todayMatchups = {}; todaysRoster = []; scheduleFutureDate = null;
   draftRoomProj = {}; playerStatus = {};
   scoresCache = {}; scoresDetail = {}; projCache = {};
   posFilter = "All"; q = "";
@@ -1626,7 +1627,7 @@ function availPlayers() {
 function renderRoom() {
   if (!$("scrRoom").classList.contains("on")) {
     show("scrRoom"); setTab("pick");
-    todaysPlayers = null; nextGameDay = null; todayMatchups = {}; todaysRoster = []; draftRoomProj = {}; playerStatus = {};
+    todaysPlayers = null; nextGameDay = null; todayMatchups = {}; todaysRoster = []; scheduleFutureDate = null; draftRoomProj = {}; playerStatus = {};
     fetchTodaysTeams(draft.sport).then(() => renderRoom());
     // refresh roster + projections every 60s so started games, probable pitchers
     // and injury status stay current (server caches ESPN, so this is cheap)
@@ -1754,9 +1755,14 @@ function renderRoom() {
   }
 
   const note = $("noGamesNote");
-  if (nextGameDay) {
+  const eventWord = draft.sport === "UFC" ? "fights" : (draft.sport === "WCUP" || draft.sport === "SOC" || draft.sport === "TEN") ? "matches" : draft.sport === "GOLF" ? "tournaments" : "games";
+  if (scheduleFutureDate) {
+    // real, scoped pool for the next slate (not a disconnected "top players" list) —
+    // say which day it's for so it's clear why today's roster looks the way it does
     note.style.display = "block";
-    const eventWord = draft.sport === "UFC" ? "fights" : (draft.sport === "WCUP" || draft.sport === "SOC") ? "matches" : draft.sport === "TEN" ? "matches" : draft.sport === "GOLF" ? "tournaments" : "games";
+    note.innerHTML = `<div class="noGamesBox">No ${SPORTNAMES[draft.sport] || draft.sport} ${eventWord} today — this pool is for the next ${eventWord.slice(0, -1)} day, <strong>${scheduleFutureDate}</strong>.</div>`;
+  } else if (nextGameDay) {
+    note.style.display = "block";
     const cardWord = draft.sport === "GOLF" ? "tournament" : "card";
     note.innerHTML = `<div class="noGamesBox">No ${SPORTNAMES[draft.sport] || draft.sport} ${eventWord} today — next ${cardWord} on <strong>${nextGameDay}</strong>. You're drafting now for those ${eventWord}.</div>`;
   } else { note.style.display = "none"; }
