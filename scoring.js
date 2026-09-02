@@ -613,6 +613,47 @@ async function weekSchedule(sport) {
   return { days, matchups, roster, players: names.size > 0 ? names : null };
 }
 
+// Survivor pools need a real week number + real kickoff timestamps + real win/loss —
+// none of which weekSchedule() computes (it only bounds a "which games are on" window).
+// ESPN's parameterless scoreboard call returns week.number, season, and per-event
+// date/winner all in one shot, so there's no need for a hardcoded season-anchor date.
+// `override` (season/week/seasonType) is for admin-gated testing only — never pass
+// through from a public request.
+async function survivorWeek(sport = "NFL", override = null) {
+  const pair = LEAGUES[sport];
+  if (!pair) return null;
+  let sb;
+  try {
+    sb = override
+      ? await jget(`https://site.api.espn.com/apis/site/v2/sports/${pair[0]}/${pair[1]}/scoreboard?dates=${override.season}&week=${override.week}&seasontype=${override.seasonType}`)
+      : await jget(`https://site.api.espn.com/apis/site/v2/sports/${pair[0]}/${pair[1]}/scoreboard`);
+  } catch (e) { console.error("survivorWeek", sport, e.message); return null; }
+  const weekNum = sb.week?.number, year = sb.season?.year, seasonType = sb.season?.type;
+  if (weekNum == null || year == null) return null;
+  const weekKey = `${year}-${seasonType}-${weekNum}`;
+  const games = []; const teams = new Set();
+  for (const ev of sb.events || []) {
+    const comps = ev.competitions?.[0]?.competitors || [];
+    const away = comps.find((c) => c.homeAway === "away");
+    const home = comps.find((c) => c.homeAway === "home");
+    const awayAbbr = normTeamAbbr(away?.team?.abbreviation);
+    const homeAbbr = normTeamAbbr(home?.team?.abbreviation);
+    if (!awayAbbr || !homeAbbr) continue;
+    teams.add(awayAbbr); teams.add(homeAbbr);
+    const completed = !!ev.status?.type?.completed;
+    let winner = null;
+    if (completed) { if (away?.winner) winner = awayAbbr; else if (home?.winner) winner = homeAbbr; }
+    games.push({
+      id: ev.id, label: ev.shortName || `${awayAbbr} @ ${homeAbbr}`,
+      away: awayAbbr, home: homeAbbr,
+      kickoff: new Date(ev.date).getTime(),
+      state: ev.status?.type?.state, completed, winner,
+    });
+  }
+  const allFinal = games.length > 0 && games.every((g) => g.completed);
+  return { weekKey, weekNumber: weekNum, season: year, seasonType, games, teams, allFinal };
+}
+
 async function todaysSchedule(sport) {
   const hit = _schedCache.get(sport);
   const ttl = _SCHED_TTL_SHORT[sport] || _SCHED_TTL;
@@ -1118,4 +1159,4 @@ async function sleeperEnrich(sport, playerNames) {
 // (see the UFC/TEN branches of _fetchSchedule). Keep this in sync with the client's copy.
 const INDIVIDUAL_SPORTS = new Set(["UFC", "TEN"]);
 
-module.exports = { pollAll, draftScores, draftScoreDetail, projectedScores, sleeperEnrich, seedDemo, scoreSummary, todaysTeams, todaysPoolPlayers, todaysSchedule, weekSchedule, WEEK_SLATE_SPORTS, nextGameDay, RULES, FAMILY, INDIVIDUAL_SPORTS, golfPoints, matchPool, buildPoolIndex, norm };
+module.exports = { pollAll, draftScores, draftScoreDetail, projectedScores, sleeperEnrich, seedDemo, scoreSummary, todaysTeams, todaysPoolPlayers, todaysSchedule, weekSchedule, WEEK_SLATE_SPORTS, nextGameDay, RULES, FAMILY, INDIVIDUAL_SPORTS, golfPoints, matchPool, buildPoolIndex, norm, survivorWeek };

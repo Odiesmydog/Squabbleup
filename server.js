@@ -97,12 +97,26 @@ async function initDb() {
       val BIGINT NOT NULL DEFAULT 0
     );
     INSERT INTO stats (key, val) VALUES ('drafts_created', 0) ON CONFLICT DO NOTHING;
+    CREATE TABLE IF NOT EXISTS pools (
+      code TEXT PRIMARY KEY,
+      state JSONB NOT NULL,
+      participants UUID[] DEFAULT '{}',
+      updated TIMESTAMPTZ DEFAULT now()
+    );
+    CREATE TABLE IF NOT EXISTS pool_invites (
+      id BIGSERIAL PRIMARY KEY,
+      pool_code TEXT NOT NULL, to_user UUID NOT NULL,
+      from_name TEXT, created TIMESTAMPTZ DEFAULT now(),
+      UNIQUE (pool_code, to_user)
+    );
     CREATE INDEX IF NOT EXISTS idx_drafts_participants ON drafts USING GIN(participants);
     CREATE INDEX IF NOT EXISTS idx_drafts_status ON drafts ((state->>'status'));
     CREATE INDEX IF NOT EXISTS idx_push_subs_user ON push_subscriptions(user_id);
     CREATE INDEX IF NOT EXISTS idx_player_scores_sport_day ON player_scores(sport, day);
     CREATE INDEX IF NOT EXISTS idx_friendships_b ON friendships(b);
     CREATE INDEX IF NOT EXISTS idx_invites_to_user ON invites(to_user);
+    CREATE INDEX IF NOT EXISTS idx_pools_participants ON pools USING GIN(participants);
+    CREATE INDEX IF NOT EXISTS idx_pool_invites_to_user ON pool_invites(to_user);
   `);
   console.log("db ready");
 }
@@ -188,15 +202,13 @@ function broadcastDeleted(code) {
   if (pendingPickNotify.has(code)) { clearTimeout(pendingPickNotify.get(code)); pendingPickNotify.delete(code); }
 }
 
-async function notifyPick(userId, draftName, code) {
+// shared by notifyPick/notifyDraftStart/survivor-pool reminders — sends to every
+// subscription a user has registered, pruning any that the push service reports gone
+async function sendPush(userId, payload) {
   const rows = (await pool.query("SELECT subscription FROM push_subscriptions WHERE user_id=$1", [userId])).rows;
   await Promise.all(rows.map(async (row) => {
     try {
-      await webpush.sendNotification(row.subscription, JSON.stringify({
-        title: "Your pick! ⚡",
-        body: `It's your turn in ${draftName}`,
-        data: { draftCode: code },
-      }));
+      await webpush.sendNotification(row.subscription, JSON.stringify(payload));
     } catch (err) {
       if (err.statusCode === 410 || err.statusCode === 404) {
         await pool.query("DELETE FROM push_subscriptions WHERE user_id=$1 AND endpoint=$2", [userId, row.subscription.endpoint]);
@@ -205,26 +217,19 @@ async function notifyPick(userId, draftName, code) {
   }));
 }
 
+async function notifyPick(userId, draftName, code) {
+  await sendPush(userId, { title: "Your pick! ⚡", body: `It's your turn in ${draftName}`, data: { draftCode: code } });
+}
+
 async function notifyDraftStart(st, code) {
   const userIds = st.seats.filter((s) => s.userId).map((s) => s.userId);
   const sportEmoji = { NFL:"🏈",NBA:"🏀",MLB:"⚾",NHL:"🏒",GOLF:"⛳",TEN:"🎾",CBB:"🏀",CFB:"🏈",UFC:"🥊",WCUP:"🌍",SOC:"⚽" };
   const em = sportEmoji[st.sport] || "🔥";
-  await Promise.all(userIds.map(async (userId) => {
-    const rows = (await pool.query("SELECT subscription FROM push_subscriptions WHERE user_id=$1", [userId])).rows;
-    await Promise.all(rows.map(async (row) => {
-      try {
-        await webpush.sendNotification(row.subscription, JSON.stringify({
-          title: `${st.name} is starting! ${em}`,
-          body: "Draft begins in 45 seconds — get ready to squabble UP! 🔥",
-          data: { draftCode: code },
-        }));
-      } catch (err) {
-        if (err.statusCode === 410 || err.statusCode === 404) {
-          await pool.query("DELETE FROM push_subscriptions WHERE user_id=$1 AND endpoint=$2", [userId, row.subscription.endpoint]);
-        }
-      }
-    }));
-  }));
+  await Promise.all(userIds.map((userId) => sendPush(userId, {
+    title: `${st.name} is starting! ${em}`,
+    body: "Draft begins in 45 seconds — get ready to squabble UP! 🔥",
+    data: { draftCode: code },
+  })));
 }
 
 
@@ -370,11 +375,13 @@ app.post("/api/register", ah(async (req, res) => {
 // me: profile + friends + invites + my drafts (parallelized)
 app.get("/api/me/:id", ah(async (req, res) => {
   const id = req.params.id;
-  const [uRes, friendRes, inviteRes, draftRes] = await Promise.all([
+  const [uRes, friendRes, inviteRes, draftRes, poolRes, poolInviteRes] = await Promise.all([
     pool.query("SELECT * FROM users WHERE id=$1", [id]),
     pool.query(`SELECT u.id, u.name, u.av, u.img, u.friendcode FROM friendships f JOIN users u ON u.id=f.b WHERE f.a=$1 ORDER BY u.name`, [id]),
     pool.query(`SELECT i.draft_code, i.from_name, d.state->>'name' AS draft_name FROM invites i JOIN drafts d ON d.code=i.draft_code WHERE i.to_user=$1 AND (d.state->>'status') = 'lobby' ORDER BY i.created DESC`, [id]),
     pool.query(`SELECT code, state FROM drafts WHERE $1 = ANY(participants) ORDER BY updated DESC LIMIT 25`, [id]),
+    pool.query(`SELECT code, state FROM pools WHERE $1 = ANY(participants) ORDER BY updated DESC LIMIT 25`, [id]),
+    pool.query(`SELECT pi.pool_code, pi.from_name, p.state->>'name' AS pool_name FROM pool_invites pi JOIN pools p ON p.code=pi.pool_code WHERE pi.to_user=$1 AND (p.state->>'status')='open' ORDER BY pi.created DESC`, [id]),
   ]);
   const u = uRes.rows[0];
   if (!u) return res.status(404).json({ error: "not found" });
@@ -386,7 +393,20 @@ app.get("/api/me/:id", ah(async (req, res) => {
     scoringEnd: d.state.scoring ? d.state.scoring.end : null,
     handshake: d.state.handshake ? { stake: d.state.handshake.stake } : null,
   }));
-  res.json({ user: u, friends: friendRes.rows, invites: inviteRes.rows, drafts });
+  const pools = poolRes.rows.map((p) => {
+    const st = p.state;
+    const mine = st.entries.find((e) => e.userId === id);
+    const alive = st.entries.filter((e) => e.alive);
+    return {
+      code: p.code, name: st.name, status: st.status,
+      myAlive: mine ? mine.alive : null, myEliminatedWeek: mine ? mine.eliminatedWeek : null,
+      weekKey: st.week.key, deadline: st.week.deadline, weekLocked: st.week.locked,
+      aliveCount: alive.length, entryCount: st.entries.length,
+      handshake: st.handshake ? { stake: st.handshake.stake } : null,
+      winners: st.winners,
+    };
+  });
+  res.json({ user: u, friends: friendRes.rows, invites: inviteRes.rows, drafts, pools, poolInvites: poolInviteRes.rows });
 }));
 
 // add friend by friendcode (mutual)
@@ -542,16 +562,26 @@ app.get("/api/draft/:code/peek", ah(async (req, res) => {
   });
 }));
 
+// shared by draft + survivor-pool handshake agree endpoints — `table` is always a
+// hardcoded literal from our own code, never user input
+async function agreeHandshake(table, code, userId) {
+  const r = await pool.query(`SELECT state FROM ${table} WHERE code=$1`, [code]);
+  const noun = table === "pools" ? "pool" : "draft";
+  if (!r.rows.length) return { error: 404, msg: `${noun[0].toUpperCase()}${noun.slice(1)} not found` };
+  const st = r.rows[0].state;
+  const members = table === "pools" ? st.entries : st.seats;
+  if (!st.handshake) return { error: 400, msg: `No handshake on this ${noun}` };
+  if (!members.find((m) => m.userId === userId)) return { error: 403, msg: `Not in this ${noun}` };
+  if (!st.handshake.agreed.includes(userId)) st.handshake.agreed.push(userId);
+  await pool.query(`UPDATE ${table} SET state=$1, updated=now() WHERE code=$2`, [JSON.stringify(st), code]);
+  return { st };
+}
+
 app.post("/api/draft/:code/handshake", ah(async (req, res) => {
   const code = req.params.code.toUpperCase();
   const { userId } = req.body;
-  const r = await pool.query("SELECT state FROM drafts WHERE code=$1", [code]);
-  if (!r.rows.length) return res.status(404).json({ error: "Draft not found" });
-  const st = r.rows[0].state;
-  if (!st.handshake) return res.status(400).json({ error: "No handshake on this draft" });
-  if (!st.seats.find((s) => s.userId === userId)) return res.status(403).json({ error: "Not in this draft" });
-  if (!st.handshake.agreed.includes(userId)) st.handshake.agreed.push(userId);
-  await pool.query("UPDATE drafts SET state=$1, updated=now() WHERE code=$2", [JSON.stringify(st), code]);
+  const result = await agreeHandshake("drafts", code, userId);
+  if (result.error) return res.status(result.error).json({ error: result.msg });
   broadcast(code);
   res.json({ ok: true });
 }));
@@ -937,6 +967,155 @@ app.delete("/api/admin/draft/:code", ah(async (req, res) => {
   res.json({ ok: true, deleted: code });
 }));
 
+// ---------------- survivor pools ----------------
+// Redacts other entrants' current-week pick until the week locks — everyone sees
+// identical, fair data at the same moment (same ethos as the shared-scoring design).
+function poolSafeState(st, viewerId) {
+  const revealed = st.week.locked;
+  return {
+    code: st.code, name: st.name, hostId: st.hostId, status: st.status,
+    handshake: st.handshake ? { stake: st.handshake.stake, agreed: st.handshake.agreed } : null,
+    winners: st.winners,
+    week: { key: st.week.key, deadline: st.week.deadline, games: st.week.games, locked: st.week.locked },
+    entries: st.entries.map((e) => {
+      const curPick = e.picks.find((p) => p.weekKey === st.week.key);
+      const isSelf = e.userId === viewerId;
+      return {
+        userId: e.userId, name: e.name, av: e.av, img: e.img,
+        alive: e.alive, eliminatedWeek: e.eliminatedWeek, usedTeams: e.usedTeams,
+        hasPickedThisWeek: !!curPick,
+        currentPick: (revealed || isSelf) ? (curPick ? { team: curPick.team, result: curPick.result } : null) : undefined,
+        pastPicks: e.picks.filter((p) => p.weekKey !== st.week.key),
+      };
+    }),
+  };
+}
+
+app.post("/api/pool/create", ah(async (req, res) => {
+  const { hostId, name, handshake } = req.body;
+  const u = (await pool.query("SELECT * FROM users WHERE id=$1", [hostId])).rows[0];
+  if (!u) return res.status(404).json({ error: "register first" });
+  const live = await scoring.survivorWeek("NFL").catch(() => null);
+  if (!live) return res.status(503).json({ error: "Couldn't reach the NFL schedule — try again in a moment" });
+  const pre = live.games.filter((g) => g.state === "pre");
+  if (!pre.length) return res.status(400).json({ error: "No upcoming NFL games this week — check back once next week's schedule is out" });
+  let code;
+  for (;;) { code = code6(); const c = await pool.query("SELECT 1 FROM pools WHERE code=$1", [code]); if (!c.rows.length) break; }
+  const state = {
+    code, name: String(name || "Survivor Pool").slice(0, 24), hostId,
+    status: "open",
+    createdAt: Date.now(),
+    handshake: handshake?.stake ? { stake: String(handshake.stake).slice(0, 60), agreed: [] } : null,
+    entries: [{ userId: hostId, name: u.name, av: u.av, img: u.img, alive: true, eliminatedWeek: null, usedTeams: [], picks: [] }],
+    week: {
+      key: live.weekKey, deadline: Math.min(...pre.map((g) => g.kickoff)),
+      games: pre, remindersSent: { "24h": false, "3h": false }, locked: false, eliminationsProcessed: false,
+    },
+    winners: null,
+  };
+  await pool.query("INSERT INTO pools (code, state, participants) VALUES ($1,$2,$3)", [code, state, [hostId]]);
+  res.json({ code });
+}));
+
+app.get("/api/pool/:code", ah(async (req, res) => {
+  const code = req.params.code.toUpperCase();
+  const r = await pool.query("SELECT state FROM pools WHERE code=$1", [code]);
+  const st = r.rows[0]?.state;
+  if (!st) return res.status(404).json({ error: "Pool not found" });
+  res.json(poolSafeState(st, req.query.userId));
+}));
+
+app.post("/api/pool/:code/join", ah(async (req, res) => {
+  const code = req.params.code.toUpperCase();
+  const { userId } = req.body;
+  const u = (await pool.query("SELECT * FROM users WHERE id=$1", [userId])).rows[0];
+  if (!u) return res.status(404).json({ error: "register first" });
+  const client = await pool.connect();
+  let st;
+  try {
+    await client.query("BEGIN");
+    const r = await client.query("SELECT state FROM pools WHERE code=$1 FOR UPDATE", [code]);
+    st = r.rows[0]?.state;
+    if (!st) { await client.query("ROLLBACK"); return res.status(404).json({ error: "Pool not found" }); }
+    if (!st.entries.some((e) => e.userId === userId)) {
+      if (st.status !== "open") { await client.query("ROLLBACK"); return res.status(400).json({ error: "Entries are closed — this pool already started" }); }
+      st.entries.push({ userId, name: u.name, av: u.av, img: u.img, alive: true, eliminatedWeek: null, usedTeams: [], picks: [] });
+      await client.query("UPDATE pools SET state=$1, participants=array_append(participants,$2), updated=now() WHERE code=$3", [st, userId, code]);
+      await client.query("DELETE FROM pool_invites WHERE pool_code=$1 AND to_user=$2", [code, userId]);
+    }
+    await client.query("COMMIT");
+  } catch (e) { await client.query("ROLLBACK"); throw e; }
+  finally { client.release(); }
+  res.json(poolSafeState(st, userId));
+}));
+
+app.post("/api/pool/:code/pick", ah(async (req, res) => {
+  const code = req.params.code.toUpperCase();
+  const { userId, team } = req.body;
+  const client = await pool.connect();
+  let st;
+  try {
+    await client.query("BEGIN");
+    const r = await client.query("SELECT state FROM pools WHERE code=$1 FOR UPDATE", [code]);
+    st = r.rows[0]?.state;
+    if (!st) { await client.query("ROLLBACK"); return res.status(404).json({ error: "Pool not found" }); }
+    const entry = st.entries.find((e) => e.userId === userId);
+    if (!entry) { await client.query("ROLLBACK"); return res.status(403).json({ error: "Not in this pool" }); }
+    if (!entry.alive) { await client.query("ROLLBACK"); return res.status(400).json({ error: "You've been eliminated" }); }
+    if (Date.now() >= st.week.deadline) { await client.query("ROLLBACK"); return res.status(400).json({ error: "Picks are locked for this week" }); }
+    const teamAbbr = String(team || "").toUpperCase();
+    const validTeam = st.week.games.some((g) => g.away === teamAbbr || g.home === teamAbbr);
+    if (!validTeam) { await client.query("ROLLBACK"); return res.status(400).json({ error: "That team isn't playing this week" }); }
+    if (entry.usedTeams.includes(teamAbbr)) { await client.query("ROLLBACK"); return res.status(400).json({ error: `You've already used ${teamAbbr} — pick a different team` }); }
+    entry.picks = entry.picks.filter((p) => p.weekKey !== st.week.key)
+      .concat([{ weekKey: st.week.key, team: teamAbbr, locked: false, result: "pending", pickedAt: Date.now() }]);
+    await client.query("UPDATE pools SET state=$1, updated=now() WHERE code=$2", [st, code]);
+    await client.query("COMMIT");
+  } catch (e) { await client.query("ROLLBACK"); throw e; }
+  finally { client.release(); }
+  res.json(poolSafeState(st, userId));
+}));
+
+app.post("/api/pool/:code/handshake", ah(async (req, res) => {
+  const code = req.params.code.toUpperCase();
+  const { userId } = req.body;
+  const result = await agreeHandshake("pools", code, userId);
+  if (result.error) return res.status(result.error).json({ error: result.msg });
+  res.json({ ok: true });
+}));
+
+app.post("/api/pool/:code/invite", ah(async (req, res) => {
+  const code = req.params.code.toUpperCase();
+  const { fromId, toUserId } = req.body;
+  const from = (await pool.query("SELECT name FROM users WHERE id=$1", [fromId])).rows[0];
+  await pool.query("INSERT INTO pool_invites (pool_code, to_user, from_name) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING", [code, toUserId, from?.name || "A friend"]);
+  res.json({ ok: true });
+}));
+
+app.delete("/api/admin/pool/:code", ah(async (req, res) => {
+  const key = req.headers["x-admin-key"];
+  if (!key || key !== process.env.ADMIN_KEY) return res.status(403).json({ error: "Forbidden" });
+  const code = req.params.code.toUpperCase();
+  await pool.query("DELETE FROM pools WHERE code=$1", [code]);
+  res.json({ ok: true, deleted: code });
+}));
+
+// testing only — runs the weekly tick against a real *completed* historical week so
+// lock/reveal/eliminate can be exercised without waiting on a live week to finish.
+// `override` never reaches survivorWeek() from any public route — only from here.
+app.post("/api/admin/pool/:code/simulate-week", ah(async (req, res) => {
+  const key = req.headers["x-admin-key"];
+  if (!key || key !== process.env.ADMIN_KEY) return res.status(403).json({ error: "Forbidden" });
+  const code = req.params.code.toUpperCase();
+  const { season, week, seasonType } = req.body;
+  if (!season || !week || !seasonType) return res.status(400).json({ error: "season, week, seasonType required" });
+  const live = await scoring.survivorWeek("NFL", { season, week, seasonType });
+  if (!live) return res.status(502).json({ error: "Couldn't fetch that week from ESPN" });
+  await tickPool(code, live);
+  const r = await pool.query("SELECT state FROM pools WHERE code=$1", [code]);
+  res.json(r.rows[0]?.state || null);
+}));
+
 // spa fallback for invite links
 app.get("*", (req, res) => {
   res.setHeader("Cache-Control", "no-cache");
@@ -1017,6 +1196,89 @@ async function cleanupStaleLobbies() {
   } catch (e) { console.error("lobby cleanup", e.message); }
 }
 
+// ---------------- survivor pool weekly tick ----------------
+const SURVIVOR_POLL_MIN = +(process.env.SURVIVOR_POLL_MIN || 3);
+
+async function processSurvivorPools() {
+  try {
+    const live = await scoring.survivorWeek("NFL").catch((e) => { console.error("survivorWeek", e.message); return null; });
+    const rows = (await pool.query(`SELECT code FROM pools WHERE (state->>'status') != 'complete'`)).rows;
+    for (const { code } of rows) await tickPool(code, live);
+  } catch (e) { console.error("processSurvivorPools", e.message); }
+}
+
+async function tickPool(code, live) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const r = await client.query("SELECT state FROM pools WHERE code=$1 FOR UPDATE", [code]);
+    const st = r.rows[0]?.state;
+    if (!st) { await client.query("ROLLBACK"); return; }
+    const now = Date.now();
+    let changed = false;
+
+    // (a) deadline lock: auto-eliminate anyone alive who never picked
+    if (!st.week.locked && now >= st.week.deadline) {
+      for (const e of st.entries) {
+        if (!e.alive) continue;
+        const p = e.picks.find((p) => p.weekKey === st.week.key);
+        if (!p) { e.picks.push({ weekKey: st.week.key, team: null, locked: true, result: "missed" }); e.alive = false; e.eliminatedWeek = st.week.key; }
+        else p.locked = true;
+      }
+      st.week.locked = true;
+      if (st.status === "open") st.status = "active"; // entries close for good once the first week locks
+      changed = true;
+    }
+
+    // (b) reminders — 24h and 3h before deadline, only to alive entrants who haven't picked yet
+    for (const [win, hrs] of [["24h", 24], ["3h", 3]]) {
+      if (!st.week.remindersSent[win] && now >= st.week.deadline - hrs * 3600e3 && now < st.week.deadline) {
+        const targets = st.entries.filter((e) => e.alive && !e.picks.find((p) => p.weekKey === st.week.key));
+        await Promise.all(targets.map((e) => sendPush(e.userId, {
+          title: hrs === 3 ? "⏰ Last call to pick!" : "Pick reminder",
+          body: `${hrs} hours left to make your pick in "${st.name}"`,
+          data: { poolCode: code, kind: "survivor-reminder" },
+        }).catch(() => {})));
+        st.week.remindersSent[win] = true; changed = true;
+      }
+    }
+
+    // (c) results + eliminations, once this week's games are all final
+    if (st.week.locked && !st.week.eliminationsProcessed && live?.weekKey === st.week.key && live.allFinal) {
+      for (const e of st.entries) {
+        const p = e.picks.find((p) => p.weekKey === st.week.key);
+        if (!p || p.team == null) continue; // already "missed"
+        const g = live.games.find((g) => g.away === p.team || g.home === p.team);
+        const result = !g || g.winner == null ? "push" : g.winner === p.team ? "win" : "loss";
+        p.result = result;
+        e.usedTeams.push(p.team); // finalize the used-team lock only now
+        if (result === "loss") { e.alive = false; e.eliminatedWeek = st.week.key; }
+      }
+      st.week.eliminationsProcessed = true;
+      const stillAlive = st.entries.filter((e) => e.alive);
+      if (stillAlive.length === 0) { st.status = "complete"; st.winners = st.entries.filter((e) => e.eliminatedWeek === st.week.key).map((e) => e.userId); }
+      else if (stillAlive.length === 1 && st.entries.length > 1) { st.status = "complete"; st.winners = [stillAlive[0].userId]; }
+      changed = true;
+    }
+
+    // (d) advance to next week once this week is fully processed and ESPN has moved on
+    if (st.status === "active" && st.week.eliminationsProcessed && live && live.weekKey !== st.week.key) {
+      const pre = live.games.filter((g) => g.state === "pre");
+      if (pre.length) {
+        st.week = {
+          key: live.weekKey, deadline: Math.min(...pre.map((g) => g.kickoff)),
+          games: pre, remindersSent: { "24h": false, "3h": false }, locked: false, eliminationsProcessed: false,
+        };
+        changed = true;
+      }
+    }
+
+    if (changed) await client.query("UPDATE pools SET state=$1, updated=now() WHERE code=$2", [st, code]);
+    await client.query("COMMIT");
+  } catch (e) { await client.query("ROLLBACK"); console.error("tickPool", code, e.message); }
+  finally { client.release(); }
+}
+
 // Graceful shutdown: Render sends SIGTERM on every deploy — finish in-flight
 // requests and release DB connections instead of dropping them mid-pick.
 process.on("SIGTERM", () => {
@@ -1034,6 +1296,9 @@ initDb().then(() => {
   }
   cleanupStaleLobbies();
   setInterval(cleanupStaleLobbies, 60 * 1000);
+
+  processSurvivorPools();
+  setInterval(processSurvivorPools, SURVIVOR_POLL_MIN * 60 * 1000);
 
   // Server-side auto-draft: when a pick timer expires and the client hasn't acted
   // (offline player, dropped connection, etc.), the server auto-picks for them.

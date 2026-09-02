@@ -18,13 +18,14 @@ self.addEventListener('fetch', e => {
 
   if (e.request.mode === 'navigate') {
     const joinCode = url.searchParams.get('join');
-    if (joinCode) {
+    const joinPoolCode = url.searchParams.get('joinpool');
+    if (joinCode || joinPoolCode) {
       // If there's already an open PWA window, send the join code to it and
       // redirect this new tab/window to root so we don't create a second instance.
       e.respondWith((async () => {
         const existing = await self.clients.matchAll({ type: 'window', includeUncontrolled: false });
         if (existing.length > 0) {
-          existing[0].postMessage({ type: 'OPEN_DRAFT', code: joinCode });
+          existing[0].postMessage(joinCode ? { type: 'OPEN_DRAFT', code: joinCode } : { type: 'OPEN_POOL', code: joinPoolCode });
           try { await existing[0].focus(); } catch {}
           return Response.redirect('/', 302);
         }
@@ -50,11 +51,12 @@ self.addEventListener('push', e => {
     if (cs.some(c => c.focused)) return;
 
     const data = e.data ? e.data.json() : {};
+    const isPoolReminder = data.data?.kind === 'survivor-reminder';
     await self.registration.showNotification(data.title || 'SquabbleUP', {
       body: data.body || "It's your turn to pick!",
       icon: '/icon.svg',
       badge: '/icon.svg',
-      tag: 'pick-turn',      // collapses multiple "your turn" notifications into one
+      tag: isPoolReminder ? 'survivor-reminder' : 'pick-turn',      // collapses repeats of the same kind into one
       renotify: true,
       data: data.data || {},
     });
@@ -63,8 +65,8 @@ self.addEventListener('push', e => {
 
 self.addEventListener('notificationclick', e => {
   e.notification.close();
-  const code = e.notification.data?.draftCode;
-  const url = code ? `/?join=${code}` : '/';
+  const d = e.notification.data || {};
+  const url = d.draftCode ? `/?join=${d.draftCode}` : d.poolCode ? `/?joinpool=${d.poolCode}` : '/';
   e.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(cs => {
       const existing = cs.find(c => c.url.includes(location.origin));
