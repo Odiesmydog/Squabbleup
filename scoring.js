@@ -38,6 +38,15 @@ const RULES = {
   // NHL uses BS (blocked shots) label, not BLK
   hockey: { "*:G": 8, "*:A": 5, "*:SOG": 1.5, "*:BS": 1.3, "*:SV": 0.7, "*:GA": -3.5 },
 };
+// Football (NFL/CFB) skill positions — the only ones that can score under RULES.football
+// (passing/rushing/receiving/fumbles). O-line (C/G/OT), kickers (PK), punters (P), and long
+// snappers (LS) have no matching rule and can never score a point, so they're excluded from
+// the draft pool entirely rather than sitting there as dead weight. Individual defensive
+// stats (LB/DL/CB/S) do have a scoring rule (defensive:*/interceptions:*), but Sleeper's
+// projection map has no mapping for them (SLEEPER_STAT_MAP.football is offense-only), so
+// they'd always show a blank pre-draft projection — excluded too, for a pool that's both
+// scoring-relevant and has real projections end to end.
+const FOOTBALL_SKILL_POS = new Set(["QB", "RB", "WR", "TE"]);
 // Soccer position abbreviations from ESPN
 const SOC_POS = { G: "GK", D: "DEF", M: "MID", F: "FWD" };
 // Multi-league list for general soccer (SOC sport)
@@ -493,6 +502,8 @@ async function _fetchSchedule(sport) {
                 const pos = FAMILY[sport] === "soccer" ? (SOC_POS[rawPos] || rawPos) : rawPos;
                 // MLB: skip pitchers not in probable starters list; when list is empty exclude all pitchers
                 if (sport === "MLB" && MLB_PITCHER_POS.has(rawPos) && !probablePitchers.has(a.displayName)) continue;
+                // NFL/CFB: only skill positions that can actually score under RULES.football
+                if (FAMILY[sport] === "football" && !FOOTBALL_SKILL_POS.has(rawPos)) continue;
                 names.add(a.displayName);
                 roster.push({ n: a.displayName, pos, tm: abbr, sp: sport, ...(livelock ? { livelock: true } : {}) });
                 added = true;
@@ -500,9 +511,11 @@ async function _fetchSchedule(sport) {
             }
           } catch {}
         }
-        // static fallback inherits the live lock and the MLB probable-pitcher filter
+        // static fallback inherits the live lock, the MLB probable-pitcher filter, and the
+        // football skill-position filter
         if (!added) PLAYERS.filter((p) => p.sp === sport && p.tm === abbr)
           .filter((p) => !(sport === "MLB" && MLB_PITCHER_POS.has(p.pos) && !probablePitchers.has(p.n)))
+          .filter((p) => FAMILY[sport] !== "football" || FOOTBALL_SKILL_POS.has(p.pos))
           .forEach((p) => { names.add(p.n); roster.push({ ...p, ...(livelock ? { livelock: true } : {}) }); });
       }
     }
@@ -583,9 +596,12 @@ async function weekSchedule(sport) {
             const r = await jget(`https://site.api.espn.com/apis/site/v2/sports/${pair[0]}/${pair[1]}/teams/${teamId}/roster`);
             const ROSTER_STATUS_EXCLUDE = new Set(["injuredreserveorout", "suspended", "practicesquad"]);
             const rawAthletes = r.athletes || [];
+            // weekSchedule is NFL/CFB only — always the football rule set, so skill
+            // positions are always the ones that can score (see FOOTBALL_SKILL_POS)
             const athletes = rawAthletes
               .filter((a) => !a.items?.length || !ROSTER_STATUS_EXCLUDE.has(String(a.position || "").toLowerCase()))
-              .flatMap((a) => a.items?.length ? a.items : (a.displayName ? [a] : []));
+              .flatMap((a) => a.items?.length ? a.items : (a.displayName ? [a] : []))
+              .filter((a) => FOOTBALL_SKILL_POS.has(knownPos.get(a.displayName) || a.position?.abbreviation || "?"));
             if (athletes.length > 0) added = true;
             for (const a of athletes) {
               if (a.displayName && !names.has(a.displayName)) {
@@ -596,7 +612,7 @@ async function weekSchedule(sport) {
             }
           } catch {}
         }
-        if (!added) PLAYERS.filter((p) => p.sp === sport && p.tm === abbr)
+        if (!added) PLAYERS.filter((p) => p.sp === sport && p.tm === abbr && FOOTBALL_SKILL_POS.has(p.pos))
           .forEach((p) => { if (!names.has(p.n)) { names.add(p.n); roster.push({ ...p, ...(livelock ? { livelock: true } : {}) }); } });
       }
       if (gameTeams.length >= 2) dayGames.push({ label, teams: gameTeams });

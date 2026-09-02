@@ -1517,6 +1517,9 @@ const INDIVIDUAL_SPORTS = new Set(["UFC", "TEN"]);
 // two get a day-grouped week view instead of just "today or the next single game day" — see
 // scoring.js's weekSchedule() for why this isn't safe to offer for daily-cadence sports.
 const WEEK_SLATE_SPORTS = new Set(["NFL", "CFB"]);
+// mirrors scoring.js's FOOTBALL_SKILL_POS — server-supplied rosters are already filtered,
+// this only matters for the client-side static-list fallback when a live roster fetch fails
+const FOOTBALL_SKILL_POS = new Set(["QB", "RB", "WR", "TE"]);
 let wizGames = []; // [{label, teams: [abbr,...]}]
 let wizSelectedGames = new Set(); // indices into wizGames
 let wizDayGroups = []; // [{label, indices: [...into wizGames]}] — only set in week mode
@@ -2048,6 +2051,7 @@ function availPlayers() {
   const filtered = pool
     .filter((p) => !taken.has(p.n))
     .filter((p) => draft.sport === "ALL" || p.sp === draft.sport)
+    .filter((p) => !WEEK_SLATE_SPORTS.has(draft.sport) || FOOTBALL_SKILL_POS.has(p.pos))
     .filter((p) => !todaysPlayers || todaysPlayers.has(p.n))
     .filter((p) => !draft.gameFilter || draft.gameFilter.includes(INDIVIDUAL_SPORTS.has(draft.sport) ? p.n : p.tm))
     .filter((p) => posFilter === "All" || p.pos === posFilter)
@@ -2205,7 +2209,8 @@ function renderRoom() {
     note.innerHTML = `<div class="noGamesBox">No ${SPORTNAMES[draft.sport] || draft.sport} ${eventWord} today — next ${cardWord} on <strong>${nextGameDay}</strong>. You're drafting now for those ${eventWord}.</div>`;
   } else { note.style.display = "none"; }
 
-  const posPool = todaysRoster.length > 0 ? todaysRoster : PLAYERS.filter((p) => draft.sport === "ALL" || p.sp === draft.sport);
+  const posPool = (todaysRoster.length > 0 ? todaysRoster : PLAYERS.filter((p) => draft.sport === "ALL" || p.sp === draft.sport))
+    .filter((p) => !WEEK_SLATE_SPORTS.has(draft.sport) || FOOTBALL_SKILL_POS.has(p.pos));
   const poses = ["All", ...new Set(posPool.map((p) => p.pos))];
   $("posFilters").innerHTML = poses.map((p) => `<button class="fchip ${posFilter === p ? "on" : ""}" data-pos="${p}">${p}</button>`).join("");
 
