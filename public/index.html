@@ -157,6 +157,7 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
 .pRow .pd { font-size: 12px; color: var(--dim); }
 .spTag { font-family: var(--display); font-size: 10px; font-weight: 600; background: var(--raised); border-radius: 5px; padding: 2px 6px; margin-right: 5px; }
 .projTag { color: var(--blue); font-weight: 700; }
+.noProjTag { color: var(--dim); font-style: italic; }
 .pThumb { width: 38px; height: 38px; border-radius: 50%; object-fit: cover; flex-shrink: 0; background: var(--raised); }
 .pThumbFb { width: 38px; height: 38px; border-radius: 50%; background: var(--raised); display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 15px; color: var(--dim); flex-shrink: 0; }
 .stBadge { font-size: 10px; font-weight: 800; border-radius: 4px; padding: 2px 6px; margin-left: 6px; vertical-align: middle; letter-spacing: .3px; }
@@ -226,13 +227,26 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
 .poolPill.alive { background: rgba(34,232,143,.18); color: var(--green); }
 .poolPill.dead { background: rgba(255,77,109,.18); color: var(--red); }
 .poolPill.win { background: rgba(168,85,247,.22); color: var(--purple); }
-.choice.used { opacity: .3; pointer-events: none; }
-.choice.picked { border-color: var(--purple); background: var(--raised); box-shadow: 0 4px 0 #0D0815, 0 0 0 2px var(--purple) inset; }
 .poolEntryRow { display: flex; align-items: center; gap: 10px; background: var(--panel); border-radius: 12px; padding: 10px 12px; margin-bottom: 8px; }
 .poolEntryRow.dead { opacity: .55; }
 .poolEntryRow .nm { font-weight: 700; flex: 1; }
 .poolEntryRow .team { font-family: var(--display); font-weight: 700; font-size: 14px; }
 .poolEntryRow .res { font-size: 18px; }
+.poolStatusStrip { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 6px 0 14px; }
+.poolDeadlineBox { background: var(--panel); border-radius: var(--r); text-align: center; padding: 14px; margin-bottom: 16px; box-shadow: 0 4px 0 #0D0815; }
+.poolLockedCard { background: var(--panel); border: 2.5px solid var(--green); border-radius: var(--r); padding: 18px; text-align: center; margin-bottom: 10px; }
+/* iPhone-style team scroll wheel */
+.teamWheelWrap { position: relative; height: 168px; margin-bottom: 4px; }
+.teamWheelHighlight { position: absolute; top: 56px; left: 0; right: 0; height: 56px; border-top: 2px solid var(--purple); border-bottom: 2px solid var(--purple); background: rgba(168,85,247,.1); pointer-events: none; z-index: 2; }
+.teamWheel { height: 168px; overflow-y: auto; scroll-snap-type: y mandatory; -webkit-overflow-scrolling: touch; scrollbar-width: none; mask-image: linear-gradient(to bottom, transparent, #000 25%, #000 75%, transparent); }
+.teamWheel::-webkit-scrollbar { display: none; }
+.teamWheelSpacer { height: 56px; scroll-snap-align: none; }
+.teamWheelRow { height: 56px; display: flex; align-items: center; justify-content: center; gap: 10px; scroll-snap-align: center; cursor: pointer; }
+.teamWheelRow .twTeam { font-family: var(--display); font-weight: 800; font-size: 22px; color: var(--text); }
+.teamWheelRow.used { opacity: .35; }
+.teamWheelRow.used .twTeam { text-decoration: line-through; color: var(--dim); }
+.teamWheelRow .twUsedTag { font-size: 11px; font-weight: 800; color: var(--red); letter-spacing: .3px; }
+.poolWheelWarn { color: var(--red); font-size: 13px; text-align: center; margin-top: 8px; font-weight: 700; }
 /* bottom nav */
 .bnav { position: fixed; left: 0; right: 0; bottom: 0; margin: 0 auto; width: min(540px, 100%); background: var(--panel); border-top: 2px solid var(--raised); display: flex; z-index: 20; padding-bottom: env(safe-area-inset-bottom); }
 .bnav button { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 9px 0 7px; color: var(--dim); font-family: var(--display); font-size: 10.5px; font-weight: 600; position: relative; }
@@ -624,9 +638,10 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
   <section class="screen" id="scrPoolDetail">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
       <button class="mini" data-nav="pools">‹ My pools</button>
+      <button class="mini" id="sharePool">📤 Invite</button>
     </div>
     <h1 class="title" id="poolDetailTitle">Pool</h1>
-    <button class="big flat" id="sharePool" style="margin-bottom:14px">📤 Invite friends — share link</button>
+    <div id="poolStatusStrip" class="poolStatusStrip"></div>
     <div id="poolHandshakeBox" style="display:none">
       <div style="margin:0 0 8px;font-family:var(--display);font-size:20px;font-weight:700;color:var(--purple);letter-spacing:.5px">🤝 HANDSHAKE MODE</div>
       <div class="hsBox">
@@ -635,14 +650,25 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
         <button class="hsAgreeBtn" id="poolHsAgreeBtn">🤝 Shake on it!</button>
       </div>
     </div>
-    <div id="poolDeadlineBox" style="text-align:center;margin-bottom:14px"></div>
+    <div id="poolDeadlineBox" class="poolDeadlineBox"></div>
+
     <div id="poolPickSection" style="display:none">
-      <div class="stepLbl">This week's pick <span id="poolWeekTeamsHint" style="color:var(--dim);font-size:10px;font-weight:600;text-transform:none;letter-spacing:0"></span></div>
-      <div class="choiceGrid" id="poolTeamGrid"></div>
+      <div class="stepLbl">Your pick for the week</div>
+      <div id="poolLockedBox" style="display:none"></div>
+      <div id="poolWheelBox">
+        <p class="note" style="margin:0 0 10px">Scroll or tap to choose a team, then lock it in. Once locked, that team is gone for the rest of this pool.</p>
+        <div class="teamWheelWrap">
+          <div class="teamWheelHighlight"></div>
+          <div class="teamWheel" id="poolTeamWheel"></div>
+        </div>
+        <div id="poolWheelWarn" class="poolWheelWarn" style="display:none"></div>
+        <button class="big gold" id="poolLockInBtn" style="margin-top:12px">🔒 Lock In My Pick</button>
+      </div>
     </div>
-    <div class="stepLbl" style="margin-top:20px">This week's picks</div>
+
+    <div class="stepLbl" style="margin-top:22px">This week's picks <span id="poolRevealHint" style="color:var(--dim);font-size:10px;font-weight:600;text-transform:none;letter-spacing:0"></span></div>
     <div id="poolRevealList"></div>
-    <div class="stepLbl" style="margin-top:20px">Standings <span id="poolAliveCount" style="color:var(--dim);font-size:10px;font-weight:600;text-transform:none;letter-spacing:0"></span></div>
+    <div class="stepLbl" style="margin-top:20px">Who's left <span id="poolAliveCount" style="color:var(--dim);font-size:10px;font-weight:600;text-transform:none;letter-spacing:0"></span></div>
     <div id="poolRoster"></div>
     <div class="stepLbl" style="margin-top:20px">Pick history</div>
     <div id="poolHistory"></div>
@@ -1349,19 +1375,81 @@ function _tickPoolCountdown() {
     clearInterval(_poolCountdownT); _poolCountdownT = null;
     return;
   }
+  const lockTimeStr = new Date(st.week.deadline).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/New_York" }) + " ET";
   const rem = st.week.deadline - Date.now();
   if (st.week.locked || rem <= 0) {
-    el.innerHTML = `<div style="font-size:13px;color:var(--dim);font-family:var(--display);font-weight:700;letter-spacing:1px;text-transform:uppercase">Picks locked</div><div style="font-size:15px;color:var(--text);margin-top:4px">Waiting on this week's results…</div>`;
+    el.innerHTML = `<div style="font-size:13px;color:var(--dim);font-family:var(--display);font-weight:700;letter-spacing:1px;text-transform:uppercase">Picks locked</div><div style="font-size:15px;color:var(--text);margin-top:4px">Locked ${lockTimeStr} — waiting on this week's results…</div>`;
     return;
   }
   const totalSec = Math.floor(rem / 1000);
   const d = Math.floor(totalSec / 86400), h = Math.floor((totalSec % 86400) / 3600), m = Math.floor((totalSec % 3600) / 60), s = totalSec % 60;
   const label = d > 0 ? `${d}d ${h}h` : h > 0 ? `${h}h ${m}m` : `${m}:${String(s).padStart(2, "0")}`;
-  el.innerHTML = `<div style="font-size:13px;color:var(--dim);font-family:var(--display);font-weight:700;letter-spacing:1px;text-transform:uppercase">Pick deadline</div><div style="font-size:34px;font-family:var(--display);font-weight:900;color:var(--green);letter-spacing:1px;line-height:1">${label}</div>`;
+  el.innerHTML = `<div style="font-size:13px;color:var(--dim);font-family:var(--display);font-weight:700;letter-spacing:1px;text-transform:uppercase">Picks lock in</div><div style="font-size:34px;font-family:var(--display);font-weight:900;color:var(--green);letter-spacing:1px;line-height:1">${label}</div><div style="font-size:12px;color:var(--dim);margin-top:4px">Cutoff: ${lockTimeStr}</div>`;
 }
+function resultLabel(r) {
+  return r === "win" ? "Won! ✅ You're still alive" : r === "loss" ? "Lost — you're out" :
+    r === "push" ? "Tie/push — you're still alive" : r === "missed" ? "Missed the deadline — eliminated" : "⏳ Waiting on this game…";
+}
+// iPhone-style team scroll wheel: one row per team, 56px each, scroll-snapped to the
+// center highlight band. Scrolling just "dials" a team (_poolDialedTeam) — nothing is
+// submitted until Lock In is tapped, per the explicit two-step flow the user asked for.
+const WHEEL_ROW_H = 56;
+let _poolWheelTeams = [], _poolDialedTeam = null, _wheelScrollT;
+function renderTeamWheel(games, usedTeams, currentTeam) {
+  const teams = [...new Set(games.flatMap((g) => [g.away, g.home]))].sort();
+  _poolWheelTeams = teams;
+  const rows = teams.map((t, i) => {
+    const used = usedTeams.includes(t);
+    const g = games.find((x) => x.away === t || x.home === t);
+    const oppLabel = g ? `vs ${g.away === t ? g.home : g.away}` : "";
+    return `<div class="teamWheelRow ${used ? "used" : ""}" data-wt="${esc(t)}" data-wi="${i}"><span class="twTeam">${esc(t)}</span>${used ? `<span class="twUsedTag">USED</span>` : `<span style="font-size:11px;color:var(--dim)">${esc(oppLabel)}</span>`}</div>`;
+  }).join("");
+  $("poolTeamWheel").innerHTML = `<div class="teamWheelSpacer"></div>${rows}<div class="teamWheelSpacer"></div>`;
+  let startIdx = currentTeam ? teams.indexOf(currentTeam) : 0;
+  if (startIdx < 0) startIdx = 0;
+  _poolDialedTeam = teams[startIdx] || null;
+  requestAnimationFrame(() => { $("poolTeamWheel").scrollTop = startIdx * WHEEL_ROW_H; updateWheelWarn(); });
+}
+function updateWheelWarn() {
+  const st = curPool; if (!st) return;
+  const mine = st.entries.find((e) => e.userId === me.id);
+  const used = !!(mine && _poolDialedTeam && mine.usedTeams.includes(_poolDialedTeam));
+  $("poolWheelWarn").style.display = used ? "block" : "none";
+  $("poolWheelWarn").textContent = used ? `You've already used ${_poolDialedTeam} — pick a different team` : "";
+  $("poolLockInBtn").disabled = used || !_poolDialedTeam;
+}
+$("poolTeamWheel").addEventListener("scroll", () => {
+  clearTimeout(_wheelScrollT);
+  _wheelScrollT = setTimeout(() => {
+    const idx = Math.max(0, Math.min(_poolWheelTeams.length - 1, Math.round($("poolTeamWheel").scrollTop / WHEEL_ROW_H)));
+    _poolDialedTeam = _poolWheelTeams[idx] || null;
+    updateWheelWarn();
+  }, 80);
+});
+$("poolTeamWheel").addEventListener("click", (e) => {
+  const row = e.target.closest("[data-wi]"); if (!row) return;
+  $("poolTeamWheel").scrollTo({ top: +row.getAttribute("data-wi") * WHEEL_ROW_H, behavior: "smooth" });
+});
+$("poolLockInBtn").addEventListener("click", async () => {
+  if (!_poolDialedTeam) return;
+  const btn = $("poolLockInBtn");
+  btn.disabled = true;
+  try { await submitPoolPick(_poolDialedTeam); } finally { btn.disabled = false; }
+});
+
 function renderPoolDetail() {
   const st = curPool; if (!st) return;
   $("poolDetailTitle").textContent = st.name;
+
+  const mine = st.entries.find((e) => e.userId === me.id);
+  const alive = st.entries.filter((e) => e.alive);
+
+  // status strip — the "here's where I stand" summary the user wanted up top, not buried
+  const myPill = st.status === "complete" ? `<span class="poolPill win">🏆 Pool complete</span>`
+    : !mine ? ""
+    : mine.alive ? `<span class="poolPill alive">🟢 You're alive</span>`
+    : `<span class="poolPill dead">🔴 You're out — Week ${esc(String(mine.eliminatedWeek || ""))}</span>`;
+  $("poolStatusStrip").innerHTML = `${myPill}<span class="poolPill" style="background:var(--raised);color:var(--text)">${alive.length} of ${st.entries.length} still alive</span>`;
 
   const hs = st.handshake;
   $("poolHandshakeBox").style.display = hs ? "block" : "none";
@@ -1379,22 +1467,24 @@ function renderPoolDetail() {
 
   _tickPoolCountdown();
 
-  const mine = st.entries.find((e) => e.userId === me.id);
-  const usedTeams = mine ? mine.usedTeams : [];
   const myPick = mine?.currentPick;
-  const canPick = !!(mine && mine.alive && !st.week.locked);
-  $("poolPickSection").style.display = canPick ? "block" : "none";
-  if (canPick) {
-    $("poolWeekTeamsHint").textContent = myPick ? `Current pick: ${myPick.team} — tap another to change` : "Tap a team to lock in your pick";
-    const teams = new Set();
-    st.week.games.forEach((g) => { teams.add(g.away); teams.add(g.home); });
-    $("poolTeamGrid").innerHTML = [...teams].sort().map((t) => {
-      const used = usedTeams.includes(t) && myPick?.team !== t;
-      const picked = myPick?.team === t;
-      return `<button class="choice ${picked ? "picked" : ""} ${used ? "used" : ""}" data-pick-team="${t}">${t}${used ? " · used" : ""}</button>`;
-    }).join("");
+  const showPickSection = !!(mine && mine.alive && st.status !== "complete");
+  $("poolPickSection").style.display = showPickSection ? "block" : "none";
+  if (showPickSection) {
+    const locked = st.week.locked;
+    $("poolWheelBox").style.display = locked ? "none" : "block";
+    $("poolLockedBox").style.display = locked ? "block" : "none";
+    if (locked) {
+      $("poolLockedBox").innerHTML = myPick
+        ? `<div class="poolLockedCard"><div style="font-family:var(--display);font-weight:700;font-size:13px;color:var(--dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Your pick this week</div><div style="font-size:36px;font-family:var(--display);font-weight:900;color:var(--green)">${esc(myPick.team)}</div><div style="margin-top:8px;font-size:14px">${resultLabel(myPick.result)}</div></div>`
+        : `<div class="poolLockedCard" style="border-color:var(--red)"><div style="font-size:30px">⏰</div><div style="margin-top:6px;font-weight:700">You missed this week's deadline — eliminated</div></div>`;
+    } else {
+      renderTeamWheel(st.week.games, mine.usedTeams, myPick?.team || null);
+      $("poolLockInBtn").textContent = myPick ? "🔒 Update My Pick" : "🔒 Lock In My Pick";
+    }
   }
 
+  $("poolRevealHint").textContent = st.week.locked ? "" : "🔒 revealed after the deadline";
   $("poolRevealList").innerHTML = st.entries.map((e) => {
     const p = e.currentPick;
     const shown = p ? `<span class="team">${esc(p.team)}</span> ${resultEmoji(p.result)}`
@@ -1403,8 +1493,7 @@ function renderPoolDetail() {
     return `<div class="poolEntryRow ${e.alive ? "" : "dead"}">${avHtml(e)}<span class="nm">${esc(e.name)}</span>${shown}</div>`;
   }).join("") || `<div class="emptyBox"><div class="e">🏈</div>No entrants yet.</div>`;
 
-  const alive = st.entries.filter((e) => e.alive);
-  $("poolAliveCount").textContent = `· ${alive.length}/${st.entries.length} alive`;
+  $("poolAliveCount").textContent = `· ${alive.length}/${st.entries.length}`;
   let rosterHtml = st.entries.map((e) => {
     const pill = e.alive ? `<span class="poolPill alive">ALIVE</span>` : `<span class="poolPill dead">OUT — wk ${esc(String(e.eliminatedWeek || ""))}</span>`;
     return `<div class="poolEntryRow ${e.alive ? "" : "dead"}">${avHtml(e)}<span class="nm">${esc(e.name)}</span>${pill}</div>`;
@@ -1426,7 +1515,7 @@ function renderPoolDetail() {
   }).join("");
 }
 async function submitPoolPick(team) {
-  try { curPool = await api(`/api/pool/${_poolCode}/pick`, { userId: me.id, team }); renderPoolDetail(); toast(`Picked ${team} for this week!`); }
+  try { curPool = await api(`/api/pool/${_poolCode}/pick`, { userId: me.id, team }); renderPoolDetail(); toast(`Locked in ${team} for this week!`); }
   catch {}
 }
 
@@ -1470,8 +1559,6 @@ document.addEventListener("click", (e) => {
   if (p) { openPoolDetail(p); return; }
   const pi = e.target.closest("[data-pool-invite]")?.getAttribute("data-pool-invite");
   if (pi) { joinPoolByCode(pi); return; }
-  const t = e.target.closest("[data-pick-team]")?.getAttribute("data-pick-team");
-  if (t) { submitPoolPick(t); return; }
 });
 
 // account deletion (App Store guideline 5.1.1(v))
@@ -2220,7 +2307,9 @@ function renderRoom() {
   $("pool").innerHTML = availPlayers().slice(0, poolCap).map((p) => {
     const game = p.ev || todayMatchups[p.tm] || p.tm;
     const proj = draftRoomProj[p.n];
-    const projStr = proj ? `<span class="projTag">${proj.proj.toFixed(1)} proj${proj.source === "sleeper" ? " 🔮" : ""}</span>` : "";
+    // no real usage history to project from yet — not a bug, just say so instead of
+    // silently omitting the field (which read as broken)
+    const projStr = proj ? `<span class="projTag">${proj.proj.toFixed(1)} proj${proj.source === "sleeper" ? " 🔮" : ""}</span>` : `<span class="noProjTag">no proj yet</span>`;
     const st = playerStatus[p.n];
     const statusBadge = p.livelock
       ? `<span class="stBadge stLive">LIVE</span>`
