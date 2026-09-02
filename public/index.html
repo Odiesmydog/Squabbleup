@@ -1707,8 +1707,9 @@ function renderRoom() {
   const note = $("noGamesNote");
   if (nextGameDay) {
     note.style.display = "block";
-    const eventWord = draft.sport === "UFC" ? "fights" : (draft.sport === "WCUP" || draft.sport === "SOC") ? "matches" : "games";
-    note.innerHTML = `<div class="noGamesBox">No ${SPORTNAMES[draft.sport] || draft.sport} ${eventWord} today — next card on <strong>${nextGameDay}</strong>. You're drafting now for those ${eventWord}.</div>`;
+    const eventWord = draft.sport === "UFC" ? "fights" : (draft.sport === "WCUP" || draft.sport === "SOC") ? "matches" : draft.sport === "TEN" ? "matches" : draft.sport === "GOLF" ? "tournaments" : "games";
+    const cardWord = draft.sport === "GOLF" ? "tournament" : "card";
+    note.innerHTML = `<div class="noGamesBox">No ${SPORTNAMES[draft.sport] || draft.sport} ${eventWord} today — next ${cardWord} on <strong>${nextGameDay}</strong>. You're drafting now for those ${eventWord}.</div>`;
   } else { note.style.display = "none"; }
 
   const posPool = todaysRoster.length > 0 ? todaysRoster : PLAYERS.filter((p) => draft.sport === "ALL" || p.sp === draft.sport);

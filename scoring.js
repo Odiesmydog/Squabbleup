@@ -176,7 +176,11 @@ async function _fetchSchedule(sport) {
       const golfLabel = roundDetail ? `${tournName} · ${roundDetail}` : tournName;
       const isLive = ev0?.status?.type?.state === "in";
       const names = new Set(); const matchups = {}; const roster = [];
-      // ESPN includes the full tournament field in competitions[0].competitors
+      // ESPN includes the full tournament field (typically 70-150+ players) in
+      // competitions[0].competitors once it's published — usually a few days before the
+      // tournament starts. If it's empty, the field just isn't out yet. Never fall back to
+      // the ~12-golfer static list here: next to a real field that size, a tiny stand-in
+      // looks like a broken/truncated pool instead of the "come back later" state it is.
       const comps = ev0?.competitions?.[0]?.competitors || [];
       for (let idx = 0; idx < comps.length; idx++) {
         const comp = comps[idx];
@@ -188,14 +192,6 @@ async function _fetchSchedule(sport) {
         const r = staticP?.r ?? (idx + 1) * 10;
         roster.push({ n: name, pos: "G", tm: "GOLF", sp: "GOLF", ev: golfLabel, r,
           ...(isLive ? { livelock: true } : {}) });
-      }
-      // fallback: static list when ESPN returns empty competitors (inherits live lock)
-      if (names.size < 10) {
-        for (const p of PLAYERS.filter((x) => x.sp === "GOLF")) {
-          if (names.has(p.n)) continue;
-          names.add(p.n);
-          roster.push({ ...p, ev: golfLabel, ...(isLive ? { livelock: true } : {}) });
-        }
       }
       if (names.size > 0) matchups["GOLF"] = golfLabel;
       return { players: names.size > 0 ? names : null, matchups, roster };
@@ -513,6 +509,28 @@ async function todaysPoolPlayers(sport) { return (await todaysSchedule(sport)).p
 
 // find the next calendar date (up to 14 days out) that has games for a sport
 async function nextGameDay(sport) {
+  if (sport === "GOLF") {
+    // one scoreboard query already returns the next non-completed tournament, field
+    // published or not — no need to loop day by day like the other sports
+    try {
+      const sb = await jget("https://site.api.espn.com/apis/site/v2/sports/golf/pga/scoreboard");
+      const upcoming = (sb.events || []).find((ev) => ev.status?.type?.state !== "post");
+      if (!upcoming?.date) return null;
+      return new Date(upcoming.date).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric", timeZone: "America/New_York" });
+    } catch { return null; }
+  }
+  if (sport === "TEN") {
+    for (let i = 1; i <= 14; i++) {
+      const d = etDateObj(i);
+      for (const tour of ["atp", "wta"]) {
+        try {
+          const sb = await jget(`https://site.api.espn.com/apis/site/v2/sports/tennis/${tour}/scoreboard?dates=${dstr(d)}`);
+          if (sb.events?.length > 0) return d.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric", timeZone: "America/New_York" });
+        } catch {}
+      }
+    }
+    return null;
+  }
   if (sport === "SOC") {
     for (let i = 1; i <= 14; i++) {
       const d = new Date(Date.now() + i * 864e5);
