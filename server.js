@@ -1321,6 +1321,11 @@ initDb().then(() => {
   //     is the fallback that keeps a seat drafting once the app is closed or backgrounded.
   // A live, connected client almost always wins the race (it fires in ~1.2s, this poller
   // runs every 5s) — the picks-length-guarded UPDATE below just no-ops if it already did.
+  //
+  // The first time someone times out, their seat flips to Auto Draft for the rest of the
+  // draft — otherwise every future round would make everyone else wait out their timer
+  // again before the same fallback kicks in. They're notified and can turn it back off
+  // themselves (the toggle) at any time if they come back.
   async function serverAutoDraft(code, st) {
     try {
       if (st.status !== "active" || isDone(st)) return;
@@ -1331,7 +1336,9 @@ initDb().then(() => {
       const pick = await pickBestAvailable(st);
       if (!pick) return;
       const prevLen = st.picks.length;
+      const turningOnAuto = timerExpired && !seat.autoDraft;
       applyPick(st, pick);
+      if (turningOnAuto) seat.autoDraft = true;
       if (isDone(st)) {
         finishDraft(st);
         lastNotifiedPick.delete(code);
@@ -1344,6 +1351,13 @@ initDb().then(() => {
       if (upd.rowCount === 0) return; // another process (or the live client) beat us to it
       broadcast(code).catch(console.error);
       console.log(`Server auto-drafted ${pick.n} for ${seat.name} in ${code}`);
+      if (turningOnAuto && seat.userId) {
+        sendPush(seat.userId, {
+          title: "⚡ Auto Draft turned on",
+          body: `You missed a pick deadline in ${st.name} — we'll auto-draft the rest of your picks so nobody's held up. Tap to turn it off.`,
+          data: { draftCode: code },
+        }).catch(() => {});
+      }
     } catch (e) { console.error("serverAutoDraft", e.message); }
   }
 
