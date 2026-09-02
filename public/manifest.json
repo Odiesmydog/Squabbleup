@@ -4,8 +4,8 @@
   "description": "Snake drafts with your friends across every sport",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#2B2926",
-  "theme_color": "#2B2926",
+  "background_color": "#0C0813",
+  "theme_color": "#0C0813",
   "orientation": "portrait-primary",
   "launch_handler": { "client_mode": "navigate-existing" },
   "icons": [
