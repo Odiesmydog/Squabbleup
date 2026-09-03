@@ -1373,10 +1373,20 @@ function closePoolDetail() {
 }
 async function refreshPoolDetail() {
   if (!_poolCode) return;
+  // Self-healing guard: if this interval ever outlives the screen it belongs to (a missed
+  // teardown on some navigation path), it must never act on stale state — least of all
+  // force-navigating the user away from whatever screen they're actually on (this used to
+  // call show("scrPools") unconditionally on any fetch failure, which could yank someone
+  // out of a live squabble draft room every 30s if a leaked poll's pool had been deleted).
+  if (!$("scrPoolDetail").classList.contains("on")) { closePoolDetail(); return; }
   try { curPool = await api(`/api/pool/${_poolCode}?userId=${me.id}`); renderPoolDetail(); }
-  catch { closePoolDetail(); loadPoolsHub(); show("scrPools"); }
+  catch {
+    closePoolDetail();
+    if ($("scrPoolDetail").classList.contains("on")) { loadPoolsHub(); show("scrPools"); }
+  }
 }
 function _tickPoolCountdown() {
+  if (!$("scrPoolDetail").classList.contains("on")) { clearInterval(_poolCountdownT); _poolCountdownT = null; return; }
   const st = curPool; const el = $("poolDeadlineBox"); if (!st || !el) return;
   if (st.status === "complete") {
     el.innerHTML = `<div style="font-size:15px;color:var(--purple);font-family:var(--display);font-weight:700">🏆 Pool complete</div>`;
@@ -1824,6 +1834,7 @@ async function fetchTodaysTeams(sport) {
 
 async function joinByCode(code) {
   if (!me?.id) { toast("Please set up your profile first"); return; }
+  closePoolDetail(); // stop any leftover pool polling before entering a squabble draft room
   code = code.toUpperCase();
   try { draft = await api(`/api/draft/${code}/join`, { userId: me.id }); }
   catch { return; } // api() already toasted the error
