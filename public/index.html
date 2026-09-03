@@ -241,8 +241,12 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
 .teamWheel { height: 168px; overflow-y: auto; scroll-snap-type: y mandatory; -webkit-overflow-scrolling: touch; scrollbar-width: none; mask-image: linear-gradient(to bottom, transparent, #000 25%, #000 75%, transparent); }
 .teamWheel::-webkit-scrollbar { display: none; }
 .teamWheelSpacer { height: 56px; scroll-snap-align: none; }
-.teamWheelRow { height: 56px; display: flex; align-items: center; justify-content: center; gap: 10px; scroll-snap-align: center; cursor: pointer; }
-.teamWheelRow .twTeam { font-family: var(--display); font-weight: 800; font-size: 22px; color: var(--text); }
+.teamWheelRow { height: 56px; display: flex; align-items: center; gap: 12px; padding: 0 18px; scroll-snap-align: center; cursor: pointer; }
+.teamWheelRow .twLogo { width: 30px; height: 30px; object-fit: contain; flex-shrink: 0; }
+.teamWheelRow .twTeam { font-family: var(--display); font-weight: 800; font-size: 20px; color: var(--text); flex-shrink: 0; }
+.teamWheelRow .twMeta { margin-left: auto; display: flex; flex-direction: column; align-items: flex-end; gap: 1px; }
+.teamWheelRow .twWinPct { font-size: 13px; font-weight: 800; color: var(--green); }
+.teamWheelRow .twOpp { font-size: 10.5px; color: var(--dim); }
 .teamWheelRow.used { opacity: .35; }
 .teamWheelRow.used .twTeam { text-decoration: line-through; color: var(--dim); }
 .teamWheelRow .twUsedTag { font-size: 11px; font-weight: 800; color: var(--red); letter-spacing: .3px; }
@@ -1419,8 +1423,18 @@ function renderTeamWheel(games, usedTeams, currentTeam) {
   const rows = teams.map((t, i) => {
     const used = usedTeams.includes(t);
     const g = games.find((x) => x.away === t || x.home === t);
-    const oppLabel = g ? `vs ${g.away === t ? g.home : g.away}` : "";
-    return `<div class="teamWheelRow ${used ? "used" : ""}" data-wt="${esc(t)}" data-wi="${i}"><span class="twTeam">${esc(t)}</span>${used ? `<span class="twUsedTag">USED</span>` : `<span style="font-size:11px;color:var(--dim)">${esc(oppLabel)}</span>`}</div>`;
+    const isAway = g?.away === t;
+    const oppLabel = g ? `vs ${isAway ? g.home : g.away}` : "";
+    const logo = g ? (isAway ? g.awayLogo : g.homeLogo) : null;
+    const winPct = g ? (isAway ? g.awayWinPct : g.homeWinPct) : null;
+    const meta = used ? `<span class="twUsedTag">USED</span>`
+      : winPct != null ? `<span class="twWinPct">${winPct}% to win</span><span class="twOpp">${esc(oppLabel)}</span>`
+      : `<span class="twOpp" style="font-size:11px">${esc(oppLabel)}</span>`;
+    return `<div class="teamWheelRow ${used ? "used" : ""}" data-wt="${esc(t)}" data-wi="${i}">
+      ${logo ? `<img class="twLogo" src="${esc(logo)}" alt="" onerror="this.style.visibility='hidden'" />` : ""}
+      <span class="twTeam">${esc(t)}</span>
+      <span class="twMeta">${meta}</span>
+    </div>`;
   }).join("");
   $("poolTeamWheel").innerHTML = `<div class="teamWheelSpacer"></div>${rows}<div class="teamWheelSpacer"></div>`;
   let startIdx = currentTeam ? teams.indexOf(currentTeam) : 0;

@@ -674,9 +674,29 @@ async function survivorWeek(sport = "NFL", override = null) {
     const completed = !!ev.status?.type?.completed;
     let winner = null;
     if (completed) { if (away?.winner) winner = awayAbbr; else if (home?.winner) winner = homeAbbr; }
+    // Moneyline → implied win probability, de-vigged so the two sides sum to 100% (raw
+    // moneylines always sum a bit over, since the sportsbook's margin is baked in — nobody
+    // picking a team wants to see "58% / 49%" and wonder why that's not 100).
+    const ml = ev.competitions?.[0]?.odds?.[0]?.moneyline;
+    const awayOdds = ml?.away?.close?.odds ?? ml?.away?.open?.odds;
+    const homeOdds = ml?.home?.close?.odds ?? ml?.home?.open?.odds;
+    const impliedProb = (odds) => {
+      const n = parseInt(odds, 10);
+      if (!Number.isFinite(n) || n === 0) return null;
+      return n < 0 ? -n / (-n + 100) : 100 / (n + 100);
+    };
+    const awayRaw = impliedProb(awayOdds), homeRaw = impliedProb(homeOdds);
+    let awayWinPct = null, homeWinPct = null;
+    if (awayRaw != null && homeRaw != null) {
+      const total = awayRaw + homeRaw;
+      awayWinPct = Math.round((awayRaw / total) * 1000) / 10;
+      homeWinPct = Math.round((homeRaw / total) * 1000) / 10;
+    }
     games.push({
       id: ev.id, label: ev.shortName || `${awayAbbr} @ ${homeAbbr}`,
       away: awayAbbr, home: homeAbbr,
+      awayLogo: away?.team?.logo || null, homeLogo: home?.team?.logo || null,
+      awayWinPct, homeWinPct,
       kickoff: new Date(ev.date).getTime(),
       state: ev.status?.type?.state, completed, winner,
     });
