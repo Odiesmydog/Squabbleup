@@ -1154,9 +1154,23 @@ app.post("/api/pool/:code/pick", ah(async (req, res) => {
     if (!entry) { await client.query("ROLLBACK"); return res.status(403).json({ error: "Not in this pool" }); }
     if (!entry.alive) { await client.query("ROLLBACK"); return res.status(400).json({ error: "You've been eliminated" }); }
     if (Date.now() >= st.week.deadline) { await client.query("ROLLBACK"); return res.status(400).json({ error: "Picks are locked for this week" }); }
+    // Individual game lock: your pick locks the instant that specific game kicks off, not
+    // just at the week's overall deadline. Without this, picking an early (Wed/Thu/Fri)
+    // team is a free look — wait for it to lose, then switch to a fresh team before Sunday.
+    // The overall week deadline above still exists as a backstop for everyone who hasn't
+    // used an early game.
+    const existingPick = entry.picks.find((p) => p.weekKey === st.week.key);
+    if (existingPick) {
+      const existingGame = st.week.games.find((g) => g.away === existingPick.team || g.home === existingPick.team);
+      if (existingGame && Date.now() >= existingGame.kickoff) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ error: `Your pick (${existingPick.team}) already kicked off — that pick is locked in for the week` });
+      }
+    }
     const teamAbbr = String(team || "").toUpperCase();
-    const validTeam = st.week.games.some((g) => g.away === teamAbbr || g.home === teamAbbr);
-    if (!validTeam) { await client.query("ROLLBACK"); return res.status(400).json({ error: "That team isn't playing this week" }); }
+    const targetGame = st.week.games.find((g) => g.away === teamAbbr || g.home === teamAbbr);
+    if (!targetGame) { await client.query("ROLLBACK"); return res.status(400).json({ error: "That team isn't playing this week" }); }
+    if (Date.now() >= targetGame.kickoff) { await client.query("ROLLBACK"); return res.status(400).json({ error: `${teamAbbr}'s game has already started` }); }
     if (entry.usedTeams.includes(teamAbbr)) { await client.query("ROLLBACK"); return res.status(400).json({ error: `You've already used ${teamAbbr} — pick a different team` }); }
     entry.picks = entry.picks.filter((p) => p.weekKey !== st.week.key)
       .concat([{ weekKey: st.week.key, team: teamAbbr, locked: false, result: "pending", pickedAt: Date.now() }]);

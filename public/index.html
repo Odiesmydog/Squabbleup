@@ -1441,14 +1441,18 @@ function renderTeamWheel(games, usedTeams, currentTeam) {
   const rows = teams.map((t, i) => {
     const used = usedTeams.includes(t);
     const g = games.find((x) => x.away === t || x.home === t);
+    // Your pick locks the moment that specific game kicks off, not just at the week's
+    // overall Sunday deadline — an early (Wed/Thu/Fri) team isn't a free look.
+    const started = g && Date.now() >= g.kickoff;
     const isAway = g?.away === t;
     const oppLabel = g ? `vs ${isAway ? g.home : g.away}` : "";
     const logo = g ? (isAway ? g.awayLogo : g.homeLogo) : null;
     const winPct = g ? (isAway ? g.awayWinPct : g.homeWinPct) : null;
     const meta = used ? `<span class="twUsedTag">USED</span>`
+      : started ? `<span class="twUsedTag">STARTED</span>`
       : winPct != null ? `<span class="twWinPct">${winPct}% to win</span><span class="twOpp">${esc(oppLabel)}</span>`
       : `<span class="twOpp" style="font-size:11px">${esc(oppLabel)}</span>`;
-    return `<div class="teamWheelRow ${used ? "used" : ""}" data-wt="${esc(t)}" data-wi="${i}">
+    return `<div class="teamWheelRow ${(used || started) ? "used" : ""}" data-wt="${esc(t)}" data-wi="${i}">
       ${logo ? `<img class="twLogo" src="${esc(logo)}" alt="" onerror="this.style.visibility='hidden'" />` : ""}
       <span class="twTeam">${esc(t)}</span>
       <span class="twMeta">${meta}</span>
@@ -1464,9 +1468,12 @@ function updateWheelWarn() {
   const st = curPool; if (!st) return;
   const mine = st.entries.find((e) => e.userId === me.id);
   const used = !!(mine && _poolDialedTeam && mine.usedTeams.includes(_poolDialedTeam));
-  $("poolWheelWarn").style.display = used ? "block" : "none";
-  $("poolWheelWarn").textContent = used ? `You've already used ${_poolDialedTeam} — pick a different team` : "";
-  $("poolLockInBtn").disabled = used || !_poolDialedTeam;
+  const g = st.week.games.find((x) => x.away === _poolDialedTeam || x.home === _poolDialedTeam);
+  const started = g && Date.now() >= g.kickoff;
+  $("poolWheelWarn").style.display = (used || started) ? "block" : "none";
+  $("poolWheelWarn").textContent = used ? `You've already used ${_poolDialedTeam} — pick a different team`
+    : started ? `${_poolDialedTeam}'s game already started — pick a team that hasn't played yet` : "";
+  $("poolLockInBtn").disabled = used || started || !_poolDialedTeam;
 }
 $("poolTeamWheel").addEventListener("scroll", () => {
   clearTimeout(_wheelScrollT);
@@ -1549,7 +1556,11 @@ function renderPoolDetail() {
   const showPickSection = !!(mine && mine.alive && st.status !== "complete");
   $("poolPickSection").style.display = showPickSection ? "block" : "none";
   if (showPickSection) {
-    const locked = st.week.locked;
+    // Locked either because the whole week's deadline (Sunday) passed, or — separately —
+    // because MY specific pick's game already kicked off, even if the overall deadline
+    // hasn't hit yet (an early Wed/Thu/Fri team locks the instant it plays).
+    const myPickGame = myPick ? st.week.games.find((g) => g.away === myPick.team || g.home === myPick.team) : null;
+    const locked = st.week.locked || (myPickGame && Date.now() >= myPickGame.kickoff);
     $("poolWheelBox").style.display = locked ? "none" : "block";
     $("poolLockedBox").style.display = locked ? "block" : "none";
     if (locked) {
