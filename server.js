@@ -1013,6 +1013,18 @@ function poolSafeState(st, viewerId) {
 // need a genuinely different elimination rule, not just a new sport key here.
 const SUICIDE_POOL_SPORTS = new Set(["NFL", "CFB"]);
 const SUICIDE_POOL_LABEL = { NFL: "NFL", CFB: "NCAA FB" };
+// Deadline = kickoff of the week's earliest Sunday game — the traditional survivor-pool
+// lock moment — not the week's very first kickoff overall. Locking at, say, a Thursday
+// opener would force everyone to decide their whole week (including picks for teams that
+// don't play until Monday) days early. This also means a Thursday-game pick isn't fully
+// "safe" until Sunday — if it loses, there's still time to switch to a different team
+// before the real deadline, same as real-world Sunday-lock pools. Falls back to the
+// earliest kickoff overall for the rare week with no Sunday game at all.
+function poolWeekDeadline(games) {
+  const sunday = games.filter((g) => new Date(g.kickoff).toLocaleDateString("en-US", { weekday: "long", timeZone: "America/New_York" }) === "Sunday");
+  const pool = sunday.length ? sunday : games;
+  return Math.min(...pool.map((g) => g.kickoff));
+}
 app.post("/api/pool/create", ah(async (req, res) => {
   const { hostId, name, handshake } = req.body;
   const sport = SUICIDE_POOL_SPORTS.has(req.body.sport) ? req.body.sport : "NFL";
@@ -1031,7 +1043,7 @@ app.post("/api/pool/create", ah(async (req, res) => {
     handshake: handshake?.stake ? { stake: String(handshake.stake).slice(0, 60), agreed: [] } : null,
     entries: [{ userId: hostId, name: u.name, av: u.av, img: u.img, alive: true, eliminatedWeek: null, usedTeams: [], picks: [] }],
     week: {
-      key: live.weekKey, deadline: Math.min(...pre.map((g) => g.kickoff)),
+      key: live.weekKey, deadline: poolWeekDeadline(pre),
       games: pre, remindersSent: { "24h": false, "3h": false }, locked: false, eliminationsProcessed: false,
     },
     winners: null,
@@ -1353,7 +1365,7 @@ async function tickPool(code, live) {
       const pre = live.games.filter((g) => g.state === "pre");
       if (pre.length) {
         st.week = {
-          key: live.weekKey, deadline: Math.min(...pre.map((g) => g.kickoff)),
+          key: live.weekKey, deadline: poolWeekDeadline(pre),
           games: pre, remindersSent: { "24h": false, "3h": false }, locked: false, eliminationsProcessed: false,
         };
         changed = true;
