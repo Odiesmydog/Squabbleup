@@ -379,7 +379,7 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
     </div>
     <button class="big" id="newDraft" style="margin-bottom:10px">+ New online Squabble</button>
     <button class="big flat" id="newLocal" style="margin-bottom:10px">📱 Pass & play (one phone)</button>
-    <button class="big flat" id="newPool">🏈 NFL Survivor Pool</button>
+    <button class="big flat" id="newPool">💀 Suicide Pool</button>
     <div class="stepLbl" style="margin-top:18px">🌐 Open Squabbles</div>
     <p class="sub" style="margin-top:-6px;margin-bottom:10px">Public rooms — walk right in.</p>
     <div id="pubRooms"></div>
@@ -612,30 +612,31 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
   <!-- SURVIVOR POOLS HUB -->
   <section class="screen" id="scrPools">
     <button class="mini" data-nav="home">‹ Back</button>
-    <h1 class="title">🏈 Survivor Pools</h1>
-    <p class="sub">Pick one team a week. Lose and you're out. Last one standing wins.</p>
+    <h1 class="title">💀 Suicide Pools</h1>
+    <p class="sub"><strong>One team, once.</strong> Pick a winner every week — use a team and it's gone for good. Lose and you're OUT. Last one standing wins.</p>
     <div id="poolInviteList"></div>
     <div class="joinRow">
       <input id="poolJoinCodeIn" placeholder="POOL CODE" maxlength="12" />
       <button class="mini green" id="poolJoinCodeBtn">Join</button>
     </div>
     <button class="big" id="newPoolBtn" style="margin-bottom:10px">+ Create a pool</button>
-    <div id="poolList"></div>
-  </section>
-
-  <!-- NEW SURVIVOR POOL -->
-  <section class="screen" id="scrNewPool">
-    <button class="mini" data-nav="pools">‹ Back</button>
-    <h1 class="title">New Survivor Pool</h1>
-    <div class="stepLbl">Pool name</div>
-    <input id="poolNameIn" maxlength="24" placeholder='e.g. "Office Survivor" or "Fam Pool"' style="width:100%;font-size:16px;margin-bottom:4px" />
-    <p class="note" style="margin-top:0">Anyone can join with the link until the first week locks.</p>
-    <button class="poolAdvToggle" id="poolAdvToggle">▸ Advanced: Handshake mode (optional)</button>
-    <div id="poolHsSection" style="display:none">
-      <input id="poolHsStakeIn" maxlength="40" placeholder='e.g. "loser buys pizza"' style="width:100%;font-size:16px" />
-      <p class="note" style="margin-top:5px">Everyone in the pool must shake on it — host-only, off by default.</p>
+    <div id="poolCreateForm" style="display:none">
+      <div class="stepLbl">Sport</div>
+      <div class="choiceGrid two" id="poolSportGrid">
+        <button class="choice sel" data-poolsp="NFL"><span class="e">🏈</span>NFL</button>
+        <button class="choice" data-poolsp="CFB"><span class="e">🏈</span>NCAA FB</button>
+      </div>
+      <div class="stepLbl">Pool name</div>
+      <input id="poolNameIn" maxlength="24" placeholder='e.g. "Office Pool" or "Fam Pool"' style="width:100%;font-size:16px;margin-bottom:4px" />
+      <p class="note" style="margin-top:0">One team a week, once used it's gone. Lose and you're out. Anyone can join with the link until the first week locks.</p>
+      <button class="poolAdvToggle" id="poolAdvToggle">▸ Advanced: Handshake mode (optional)</button>
+      <div id="poolHsSection" style="display:none">
+        <input id="poolHsStakeIn" maxlength="40" placeholder='e.g. "loser buys pizza"' style="width:100%;font-size:16px" />
+        <p class="note" style="margin-top:5px">Everyone in the pool must shake on it — host-only, off by default.</p>
+      </div>
+      <button class="big gold" id="createPoolBtn" style="margin:16px 0">Create pool</button>
     </div>
-    <button class="big gold" id="createPoolBtn" style="margin-top:16px">Create pool</button>
+    <div id="poolList"></div>
   </section>
 
   <!-- SURVIVOR POOL DETAIL -->
@@ -1321,12 +1322,12 @@ function renderPoolsHub() {
     <div class="dCard invite">
       <div class="dCardClick" data-pool-invite="${esc(i.pool_code)}">
         <span style="font-size:22px">💌</span>
-        <div class="info"><div class="nm">${esc(i.from_name)} invited you!</div><div class="st go">${esc(i.pool_name || "Survivor Pool")} · tap to join</div></div>
+        <div class="info"><div class="nm">${esc(i.from_name)} invited you!</div><div class="st go">${esc(i.pool_name || "Suicide Pool")} · tap to join</div></div>
         <span style="font-size:20px;color:var(--dim)">▶</span>
       </div>
     </div>`).join("");
   $("poolList").innerHTML = pools.map(poolCardHtml).join("") ||
-    `<div class="emptyBox"><div class="e">🏈</div>No survivor pools yet.<br />Create one or join with a code!</div>`;
+    `<div class="emptyBox"><div class="e">💀</div>No suicide pools yet.<br />Create one or join with a code!</div>`;
 }
 function poolCardHtml(p) {
   const rem = p.deadline - Date.now();
@@ -1344,7 +1345,7 @@ function poolCardHtml(p) {
   return `<div class="dCard">
     <div class="dCardClick" data-pool="${esc(p.code)}">
       <span style="font-size:26px">🏈</span>
-      <div class="info"><div class="nm">${esc(p.name)}</div><div class="st go">${lockTxt}</div>
+      <div class="info"><div class="nm">${esc(p.name)} <span class="spTag">${esc(SPORTNAMES[p.sport] || p.sport)}</span></div><div class="st go">${lockTxt}</div>
         <div style="margin-top:4px">${statusPill} <span style="font-size:11px;color:var(--dim);margin-left:6px">${p.aliveCount}/${p.entryCount} alive</span>${p.handshake ? ` <span class="poolPill" style="background:rgba(168,85,247,.18);color:var(--purple)">🤝 ${esc(p.handshake.stake)}</span>` : ""}</div>
       </div>
       ${!action ? `<span style="font-size:18px;color:var(--dim)">▶</span>` : ""}
@@ -1578,11 +1579,28 @@ async function submitPoolPick(team) {
 }
 
 $("newPool").addEventListener("click", () => { loadPoolsHub(); show("scrPools"); });
+// Sports that fit the pick-one-team-a-week format — mirrors SUICIDE_POOL_SPORTS server-side
+const POOL_SPORTS = new Set(["NFL", "CFB"]);
+let poolWizSport = "NFL";
 $("newPoolBtn").addEventListener("click", () => {
-  $("poolNameIn").value = ""; $("poolHsStakeIn").value = "";
-  $("poolHsSection").style.display = "none";
-  $("poolAdvToggle").textContent = "▸ Advanced: Handshake mode (optional)";
-  show("scrNewPool");
+  // Inline, expandable form on the same screen — a name + a sport toggle + an optional
+  // stake field doesn't need its own full-screen wizard/navigation hop.
+  const opening = $("poolCreateForm").style.display === "none";
+  $("poolCreateForm").style.display = opening ? "block" : "none";
+  $("newPoolBtn").textContent = opening ? "− Cancel" : "+ Create a pool";
+  if (opening) {
+    $("poolNameIn").value = ""; $("poolHsStakeIn").value = "";
+    $("poolHsSection").style.display = "none";
+    $("poolAdvToggle").textContent = "▸ Advanced: Handshake mode (optional)";
+    poolWizSport = "NFL";
+    document.querySelectorAll("#poolSportGrid .choice").forEach((c) => c.classList.toggle("sel", c.getAttribute("data-poolsp") === "NFL"));
+    $("poolNameIn").focus();
+  }
+});
+$("poolSportGrid").addEventListener("click", (e) => {
+  const b = e.target.closest(".choice"); if (!b) return;
+  document.querySelectorAll("#poolSportGrid .choice").forEach((c) => c.classList.remove("sel"));
+  b.classList.add("sel"); poolWizSport = b.getAttribute("data-poolsp");
 });
 $("poolAdvToggle").addEventListener("click", () => {
   const open = $("poolHsSection").style.display !== "none";
@@ -1595,7 +1613,9 @@ $("createPoolBtn").addEventListener("click", async (e) => {
   try {
     const name = $("poolNameIn").value.trim();
     const stake = $("poolHsStakeIn").value.trim();
-    const { code } = await api("/api/pool/create", { hostId: me.id, name, handshake: stake ? { stake, agreed: [] } : null });
+    const { code } = await api("/api/pool/create", { hostId: me.id, name, sport: poolWizSport, handshake: stake ? { stake, agreed: [] } : null });
+    $("poolCreateForm").style.display = "none";
+    $("newPoolBtn").textContent = "+ Create a pool";
     openPoolDetail(code);
   } finally { btn.disabled = false; }
 });
@@ -1605,7 +1625,8 @@ $("poolJoinCodeBtn").addEventListener("click", () => {
 });
 $("sharePool").addEventListener("click", () => {
   if (!curPool) return;
-  shareText(`Join my NFL Survivor Pool on SquabbleUP! Pool code: ${curPool.code}`, `${location.origin}/?joinpool=${curPool.code}`);
+  const spLabel = SPORTNAMES[curPool.sport] || curPool.sport;
+  shareText(`Join my ${spLabel} Suicide Pool on SquabbleUP! Pool code: ${curPool.code}`, `${location.origin}/?joinpool=${curPool.code}`);
 });
 $("poolHsAgreeBtn").addEventListener("click", async () => {
   $("poolHsAgreeBtn").disabled = true;

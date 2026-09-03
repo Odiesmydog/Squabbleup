@@ -409,7 +409,7 @@ app.get("/api/me/:id", ah(async (req, res) => {
     const mine = st.entries.find((e) => e.userId === id);
     const alive = st.entries.filter((e) => e.alive);
     return {
-      code: p.code, name: st.name, status: st.status, hostId: st.hostId,
+      code: p.code, name: st.name, status: st.status, hostId: st.hostId, sport: st.sport || "NFL",
       myAlive: mine ? mine.alive : null, myEliminatedWeek: mine ? mine.eliminatedWeek : null,
       weekKey: st.week.key, deadline: st.week.deadline, weekLocked: st.week.locked,
       aliveCount: alive.length, entryCount: st.entries.length,
@@ -982,7 +982,7 @@ app.delete("/api/admin/draft/:code", ah(async (req, res) => {
 function poolSafeState(st, viewerId) {
   const revealed = st.week.locked;
   return {
-    code: st.code, name: st.name, hostId: st.hostId, status: st.status,
+    code: st.code, name: st.name, hostId: st.hostId, status: st.status, sport: st.sport || "NFL",
     handshake: st.handshake ? { stake: st.handshake.stake, agreed: st.handshake.agreed } : null,
     winners: st.winners,
     week: { key: st.week.key, deadline: st.week.deadline, games: st.week.games, locked: st.week.locked },
@@ -1000,18 +1000,26 @@ function poolSafeState(st, viewerId) {
   };
 }
 
+// Sports that fit the suicide-pool shape as-is: a weekly cadence (one game per team per
+// week, so "week" is an unambiguous elimination period) and a clean binary win/loss result.
+// NBA/NHL/MLB play near-daily (a "week" would span many games per team, muddying what
+// "used" even means) and golf/tennis have no team-vs-team win/loss at all — those would
+// need a genuinely different elimination rule, not just a new sport key here.
+const SUICIDE_POOL_SPORTS = new Set(["NFL", "CFB"]);
+const SUICIDE_POOL_LABEL = { NFL: "NFL", CFB: "NCAA FB" };
 app.post("/api/pool/create", ah(async (req, res) => {
   const { hostId, name, handshake } = req.body;
+  const sport = SUICIDE_POOL_SPORTS.has(req.body.sport) ? req.body.sport : "NFL";
   const u = (await pool.query("SELECT * FROM users WHERE id=$1", [hostId])).rows[0];
   if (!u) return res.status(404).json({ error: "register first" });
-  const live = await scoring.survivorWeek("NFL").catch(() => null);
-  if (!live) return res.status(503).json({ error: "Couldn't reach the NFL schedule — try again in a moment" });
+  const live = await scoring.survivorWeek(sport).catch(() => null);
+  if (!live) return res.status(503).json({ error: `Couldn't reach the ${SUICIDE_POOL_LABEL[sport]} schedule — try again in a moment` });
   const pre = live.games.filter((g) => g.state === "pre");
-  if (!pre.length) return res.status(400).json({ error: "No upcoming NFL games this week — check back once next week's schedule is out" });
+  if (!pre.length) return res.status(400).json({ error: `No upcoming ${SUICIDE_POOL_LABEL[sport]} games this week — check back once next week's schedule is out` });
   let code;
   for (;;) { code = code6(); const c = await pool.query("SELECT 1 FROM pools WHERE code=$1", [code]); if (!c.rows.length) break; }
   const state = {
-    code, name: String(name || "Survivor Pool").slice(0, 24), hostId,
+    code, name: String(name || `${SUICIDE_POOL_LABEL[sport]} Suicide Pool`).slice(0, 24), hostId, sport,
     status: "open",
     createdAt: Date.now(),
     handshake: handshake?.stake ? { stake: String(handshake.stake).slice(0, 60), agreed: [] } : null,
@@ -1153,7 +1161,9 @@ app.post("/api/admin/pool/:code/simulate-week", ah(async (req, res) => {
   const code = req.params.code.toUpperCase();
   const { season, week, seasonType } = req.body;
   if (!season || !week || !seasonType) return res.status(400).json({ error: "season, week, seasonType required" });
-  const live = await scoring.survivorWeek("NFL", { season, week, seasonType });
+  const cur = (await pool.query("SELECT state FROM pools WHERE code=$1", [code])).rows[0]?.state;
+  if (!cur) return res.status(404).json({ error: "Pool not found" });
+  const live = await scoring.survivorWeek(cur.sport || "NFL", { season, week, seasonType });
   if (!live) return res.status(502).json({ error: "Couldn't fetch that week from ESPN" });
   await tickPool(code, live);
   const r = await pool.query("SELECT state FROM pools WHERE code=$1", [code]);
@@ -1245,9 +1255,15 @@ const SURVIVOR_POLL_MIN = +(process.env.SURVIVOR_POLL_MIN || 3);
 
 async function processSurvivorPools() {
   try {
-    const live = await scoring.survivorWeek("NFL").catch((e) => { console.error("survivorWeek", e.message); return null; });
-    const rows = (await pool.query(`SELECT code FROM pools WHERE (state->>'status') != 'complete'`)).rows;
-    for (const { code } of rows) await tickPool(code, live);
+    const rows = (await pool.query(`SELECT code, state->>'sport' AS sport FROM pools WHERE (state->>'status') != 'complete'`)).rows;
+    // one live-schedule fetch per distinct sport in play this tick, reused across every
+    // pool of that sport, rather than a separate ESPN call per pool
+    const sports = [...new Set(rows.map((r) => r.sport || "NFL"))];
+    const liveBySport = {};
+    for (const sp of sports) {
+      liveBySport[sp] = await scoring.survivorWeek(sp).catch((e) => { console.error("survivorWeek", sp, e.message); return null; });
+    }
+    for (const { code, sport } of rows) await tickPool(code, liveBySport[sport || "NFL"]);
   } catch (e) { console.error("processSurvivorPools", e.message); }
 }
 
