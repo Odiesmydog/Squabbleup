@@ -760,7 +760,10 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
         <button class="mini" id="autoDraftBtn" style="white-space:nowrap;flex-shrink:0">⚡ Auto</button>
       </div>
       <div id="noGamesNote" style="display:none"></div>
-      <div class="filters" id="posFilters"></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <div class="filters" id="posFilters" style="flex:1;min-width:0"></div>
+        <button class="mini" id="sortToggleBtn" style="flex-shrink:0;white-space:nowrap">⇅ Rank</button>
+      </div>
       <div id="pool"></div>
     </div>
     <div id="tabBoard" style="display:none"></div>
@@ -1840,7 +1843,7 @@ $("createDraft").addEventListener("click", async (e) => {
 });
 
 // ================= draft connection =================
-let draft = null, ws = null, pollT = null, posFilter = "All", q = "", activeTab = "pick", unreadChat = false, lastChatLen = 0, _shuffling = false;
+let draft = null, ws = null, pollT = null, posFilter = "All", q = "", activeTab = "pick", unreadChat = false, lastChatLen = 0, _shuffling = false, sortMode = "rank";
 let _connected = false, _lobbyExpiry = null, _autoDraft = false, _autoDraftT = null, _pickTimerT = null, _lobbyTimerT = null, _lastPickCount = -1, _wsReconnectT = null, _rosterRefreshT = null, _lastRound = 0, _rndBannerT = null;
 let todaysPlayers = null, nextGameDay = null, todayMatchups = {}, draftRoomProj = {}, playerStatus = {}, todaysRoster = [], scheduleFutureDate = null;
 // Precomputed rank map — built once from static PLAYERS list
@@ -1958,7 +1961,9 @@ function leaveDraft() {
   todaysPlayers = null; nextGameDay = null; todayMatchups = {}; todaysRoster = []; scheduleFutureDate = null;
   draftRoomProj = {}; playerStatus = {};
   scoresCache = {}; scoresDetail = {}; projCache = {};
-  posFilter = "All"; q = "";
+  posFilter = "All"; q = ""; sortMode = "rank";
+  const stb = $("sortToggleBtn");
+  if (stb) { stb.textContent = "⇅ Rank"; stb.classList.remove("green"); }
 }
 
 function routeDraft() {
@@ -2242,6 +2247,15 @@ function availPlayers() {
     const aOut = (OUT_STATUS.has(playerStatus[a.n]?.status) || a.livelock) ? 1 : 0;
     const bOut = (OUT_STATUS.has(playerStatus[b.n]?.status) || b.livelock) ? 1 : 0;
     if (aOut !== bOut) return aOut - bOut;
+    if (sortMode === "proj") {
+      const aProj = draftRoomProj[a.n]?.proj, bProj = draftRoomProj[b.n]?.proj;
+      // players with no projection sink to the bottom of this sort instead of comparing as 0
+      // (which would wrongly outrank a real, small-but-positive projection)
+      if (aProj == null && bProj == null) {} // fall through to rank tiebreak below
+      else if (aProj == null) return 1;
+      else if (bProj == null) return -1;
+      else if (aProj !== bProj) return bProj - aProj;
+    }
     // prefer projection-based rank, then static rank; unranked ESPN-only players use pool order (r undefined)
     const aRank = RANK_MAP.get(a.n) ?? (a.r ?? 9999);
     const bRank = RANK_MAP.get(b.n) ?? (b.r ?? 9999);
@@ -2438,6 +2452,12 @@ function renderRoom() {
   if (myTurn && _autoDraft) fireAutoDraft();
 }
 $("posFilters").addEventListener("click", (e) => { const p = e.target.getAttribute("data-pos"); if (p) { posFilter = p; renderRoom(); } });
+$("sortToggleBtn").addEventListener("click", () => {
+  sortMode = sortMode === "rank" ? "proj" : "rank";
+  $("sortToggleBtn").textContent = sortMode === "proj" ? "⇅ Top Proj" : "⇅ Rank";
+  $("sortToggleBtn").classList.toggle("green", sortMode === "proj");
+  renderRoom();
+});
 let _searchT;
 $("pSearch").addEventListener("input", (e) => { clearTimeout(_searchT); _searchT = setTimeout(() => { q = e.target.value.toLowerCase(); renderRoom(); }, 150); });
 $("autoDraftBtn").addEventListener("click", () => {
