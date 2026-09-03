@@ -2934,6 +2934,19 @@ if (_isIOS && !_isStandalone && !_installDismissed()) {
   _showInstallBanner("ios");
 }
 
+// The banner is a fixed, bottom-pinned element appended straight to <body> — it has no
+// participation in normal document flow, so without reserving space for it, it silently
+// overlaps whatever real content/buttons happen to render at the bottom of the current
+// screen. That's exactly what "can't click Draft" / "buttons feel sticky" looked like:
+// the install banner was sitting on top of the draft room's player list, intercepting
+// taps meant for the player underneath it.
+function _removeInstallBanner() {
+  const el = $("installBanner");
+  if (!el) return;
+  if (el._reserveHandler) window.removeEventListener("resize", el._reserveHandler);
+  document.body.style.paddingBottom = "";
+  el.remove();
+}
 function _showInstallBanner(type) {
   if ($("installBanner")) return;
   const ios = type === "ios";
@@ -2945,7 +2958,11 @@ function _showInstallBanner(type) {
     ${ios ? "" : `<button class="iBtn" id="installBtn">Install</button>`}
     <button class="iClose" id="installClose">✕</button>`;
   document.body.appendChild(el);
-  $("installClose").addEventListener("click", () => { el.remove(); _dismissInstall(); });
+  const reserve = () => { document.body.style.paddingBottom = el.getBoundingClientRect().height + "px"; };
+  requestAnimationFrame(reserve);
+  el._reserveHandler = reserve;
+  window.addEventListener("resize", reserve);
+  $("installClose").addEventListener("click", () => { _removeInstallBanner(); _dismissInstall(); });
   if (!ios) $("installBtn").addEventListener("click", () => triggerInstall(el));
 }
 
@@ -2963,7 +2980,7 @@ async function triggerInstall(bannerEl) {
     try {
       await _deferredInstall.prompt();
       const { outcome } = await _deferredInstall.userChoice;
-      if (outcome === "accepted") { bannerEl?.remove(); _dismissInstall(); toast("Installing…"); }
+      if (outcome === "accepted") { if (bannerEl) _removeInstallBanner(); _dismissInstall(); toast("Installing…"); }
     } catch {
       toast("Install prompt failed — try your browser menu instead");
     } finally {
