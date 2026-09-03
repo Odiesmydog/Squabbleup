@@ -169,20 +169,24 @@ async function broadcast(code) {
     if (ws.readyState === 1) ws.send(msg);
   }
   scheduleBot(code, st);
-  // push notification when the picker changes — delayed 3s so the UI updates first
-  // and the SW can suppress if the user's app is already focused
+  // push notification when the picker changes — delayed well past a normal pick pace (not
+  // just long enough for the UI to catch up) so someone actively drafting at a typical clip
+  // never gets buzzed for their own turn; this only fires for someone who's genuinely been
+  // sitting on their pick for a while. Previously 3s, which fired on essentially every single
+  // turn for anyone actively engaged — reported as the notifications feeling "overly
+  // aggressive during drafting."
   if (st.status === "active" && !isDone(st)) {
     const seat = st.seats[pickerIndex(st)];
     if (seat?.userId && !seat.bot && !seat.autoDraft) {
       const lastLen = lastNotifiedPick.get(code) ?? -1;
       if (st.picks.length !== lastLen) {
         lastNotifiedPick.set(code, st.picks.length);
-        // cancel any pending notification for the previous turn (picked before 3s elapsed)
+        // cancel any pending notification for the previous turn if it's already been picked
         if (pendingPickNotify.has(code)) clearTimeout(pendingPickNotify.get(code));
         const t = setTimeout(() => {
           pendingPickNotify.delete(code);
           notifyPick(seat.userId, st.name, code).catch(() => {});
-        }, 3000);
+        }, 20000);
         pendingPickNotify.set(code, t);
       }
     }
