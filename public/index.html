@@ -649,6 +649,10 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
       </div>
     </div>
     <h1 class="title" id="poolDetailTitle">Pool</h1>
+    <div class="codeBox" style="margin-bottom:10px">
+      <div class="l">POOL CODE</div>
+      <div class="c" id="poolCodeDisplay">······</div>
+    </div>
     <div id="poolStatusStrip" class="poolStatusStrip"></div>
     <div id="poolHandshakeBox" style="display:none">
       <div style="margin:0 0 8px;font-family:var(--display);font-size:20px;font-weight:700;color:var(--purple);letter-spacing:.5px">🤝 HANDSHAKE MODE</div>
@@ -1476,6 +1480,7 @@ $("poolLockInBtn").addEventListener("click", async () => {
 function renderPoolDetail() {
   const st = curPool; if (!st) return;
   $("poolDetailTitle").textContent = st.name;
+  $("poolCodeDisplay").textContent = st.code;
 
   const mine = st.entries.find((e) => e.userId === me.id);
   const alive = st.entries.filter((e) => e.alive);
