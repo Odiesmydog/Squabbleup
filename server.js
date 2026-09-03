@@ -843,8 +843,14 @@ app.get("/api/schedule/:sport/week", ah(async (req, res) => {
 
 app.get("/api/projected/:sport", ah(async (req, res) => {
   const sport = req.params.sport.toUpperCase();
-  // use today's live roster so projections cover every draftable player, not just our static list
-  const { roster } = await scoring.todaysSchedule(sport).catch(() => ({ roster: [] }));
+  // Use the same schedule source the actual draft pool is built from — scheduleFor()
+  // already branches to weekSchedule() for NFL/CFB (a whole week of games) vs
+  // todaysSchedule() for daily-cadence sports. This used to hardcode todaysSchedule()
+  // always, so any week-mode player whose game wasn't specifically *today* never even
+  // got asked about for a projection — real Sleeper data existed for them, it just never
+  // got queried, showing as a blank "no proj yet" for anyone outside the current day's
+  // single slate even though they were fully draftable.
+  const { roster } = await scheduleFor(sport).catch(() => ({ roster: [] }));
   const sportPlayers = roster.length > 0
     ? roster.map((p) => p.n)
     : PLAYERS.filter((p) => p.sp === sport).map((p) => p.n);
