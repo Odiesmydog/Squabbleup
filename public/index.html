@@ -1698,7 +1698,7 @@ const INDIVIDUAL_SPORTS = new Set(["UFC", "TEN"]);
 const WEEK_SLATE_SPORTS = new Set(["NFL", "CFB"]);
 // mirrors scoring.js's FOOTBALL_SKILL_POS — server-supplied rosters are already filtered,
 // this only matters for the client-side static-list fallback when a live roster fetch fails
-const FOOTBALL_SKILL_POS = new Set(["QB", "RB", "WR", "TE"]);
+const FOOTBALL_SKILL_POS = new Set(["QB", "RB", "WR", "TE", "PK"]);
 let wizGames = []; // [{label, teams: [abbr,...]}]
 let wizSelectedGames = new Set(); // indices into wizGames
 let wizDayGroups = []; // [{label, indices: [...into wizGames]}] — only set in week mode

@@ -29,6 +29,10 @@ const RULES = {
     "fumbles:LOST": -2,
     "defensive:TOT": 1, "defensive:SACKS": 4,
     "interceptions:INT": 6,
+    // ESPN's kicking box score already totals real NFL scoring (FG=3, XP=1) into a "PTS"
+    // label per kicker — using that directly instead of trying to parse "FG"/"XP" (which
+    // come as made/attempted strings like "2/3", not plain numbers).
+    "kicking:PTS": 1,
   },
   basketball: { "*:PTS": 1, "*:REB": 1.2, "*:AST": 1.5, "*:STL": 3, "*:BLK": 3, "*:TO": -1 },
   baseball: {
@@ -38,15 +42,16 @@ const RULES = {
   // NHL uses BS (blocked shots) label, not BLK
   hockey: { "*:G": 8, "*:A": 5, "*:SOG": 1.5, "*:BS": 1.3, "*:SV": 0.7, "*:GA": -3.5 },
 };
-// Football (NFL/CFB) skill positions — the only ones that can score under RULES.football
-// (passing/rushing/receiving/fumbles). O-line (C/G/OT), kickers (PK), punters (P), and long
-// snappers (LS) have no matching rule and can never score a point, so they're excluded from
-// the draft pool entirely rather than sitting there as dead weight. Individual defensive
-// stats (LB/DL/CB/S) do have a scoring rule (defensive:*/interceptions:*), but Sleeper's
-// projection map has no mapping for them (SLEEPER_STAT_MAP.football is offense-only), so
-// they'd always show a blank pre-draft projection — excluded too, for a pool that's both
-// scoring-relevant and has real projections end to end.
-const FOOTBALL_SKILL_POS = new Set(["QB", "RB", "WR", "TE"]);
+// Football (NFL/CFB) skill positions — the only ones that can score under RULES.football.
+// O-line (C/G/OT) and long snappers (LS) have no matching rule and can never score a point,
+// so they stay excluded. Kickers (PK) DO score now (RULES.football's kicking:PTS) so they're
+// included despite having no Sleeper projection coverage — real points on the board beats a
+// pre-draft number, and the UI already shows "no proj yet" instead of pretending it's zero.
+// Individual defensive stats (LB/DL/CB/S) do have a scoring rule too (defensive:*/
+// interceptions:*), but stay excluded — Sleeper's projection map is offense+kicking only
+// (SLEEPER_STAT_MAP.football), so defense would have zero projection coverage app-wide,
+// not just a mostly-there long tail like kickers have.
+const FOOTBALL_SKILL_POS = new Set(["QB", "RB", "WR", "TE", "PK"]);
 // Soccer position abbreviations from ESPN
 const SOC_POS = { G: "GK", D: "DEF", M: "MID", F: "FWD" };
 // Multi-league list for general soccer (SOC sport)
@@ -108,6 +113,11 @@ function scoreSummary(family, summary) {
         let pts = 0; const allParts = [];
         labels.forEach((lbl, i) => {
           const raw = String(a.stats?.[i] ?? "0");
+          // made/attempted fields (kicking FG "2/3", XP "2/2") aren't a single number —
+          // stripping non-digits would concatenate them into a nonsense value like 23.
+          // None of these carry a scoring rule (only kicking:PTS does), so display them
+          // as-is and skip scoring entirely rather than mangle them.
+          if (raw.includes("/")) { allParts.push(`${raw} ${lbl.toLowerCase()}`); return; }
           let val = parseFloat(raw.replace(/[^0-9.\-]/g, "")) || 0;
           // ESPN baseball IP uses X.Y where Y = outs (0-2), not decimal fraction
           if (lbl === "IP" && val > 0) val = Math.floor(val) + ((Math.round(val * 10) % 10) / 3);
