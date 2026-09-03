@@ -1898,6 +1898,9 @@ function connect(code) {
   }, 3500);
 }
 function leaveDraft() {
+  // Restore the install banner if it was suppressed for the room (see renderRoom())
+  const ib = $("installBanner");
+  if (ib) ib.style.display = "";
   // Auto Draft deliberately stays ON server-side when leaving/closing — the server has its
   // own fallback (serverAutoDraft in server.js) that keeps drafting this seat even with no
   // client connected, so navigating away or closing the app must never silently turn it off.
@@ -2213,6 +2216,13 @@ function availPlayers() {
 function renderRoom() {
   if (!$("scrRoom").classList.contains("on")) {
     show("scrRoom"); setTab("pick");
+    // The install banner is a fixed, bottom-pinned element with no reserved layout space —
+    // on a real device it can land directly on top of the player list (including whoever's
+    // "Draft" button happens to render at the bottom of the current view), silently
+    // swallowing taps meant for the game underneath it. Drafting is time-critical, so it's
+    // suppressed for the duration of the room and restored in leaveDraft().
+    const ib = $("installBanner");
+    if (ib) ib.style.display = "none";
     todaysPlayers = null; nextGameDay = null; todayMatchups = {}; todaysRoster = []; scheduleFutureDate = null; draftRoomProj = {}; playerStatus = {};
     fetchTodaysTeams(draft.sport).then(() => renderRoom());
     // refresh roster + projections every 60s so started games, probable pitchers
@@ -2958,6 +2968,9 @@ function _showInstallBanner(type) {
     ${ios ? "" : `<button class="iBtn" id="installBtn">Install</button>`}
     <button class="iClose" id="installClose">✕</button>`;
   document.body.appendChild(el);
+  // If beforeinstallprompt fires (or the iOS check runs) while the draft room is already
+  // open, don't let the banner appear on top of it either — same reasoning as renderRoom().
+  if ($("scrRoom").classList.contains("on")) el.style.display = "none";
   const reserve = () => { document.body.style.paddingBottom = el.getBoundingClientRect().height + "px"; };
   requestAnimationFrame(reserve);
   el._reserveHandler = reserve;
