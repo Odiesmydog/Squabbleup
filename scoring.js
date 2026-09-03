@@ -558,8 +558,23 @@ async function _fetchSchedule(sport) {
 // single Wed/Thu-through-Monday week regardless of where "today" falls within it, and stays
 // short of the ~7-day gap to the following week's opener.
 const WEEK_SLATE_SPORTS = new Set(["NFL", "CFB"]);
+// Unlike todaysSchedule(), this had no cache at all — every call fans out to a roster fetch
+// per team across the whole week's games (dozens of requests for a full NFL/CFB slate), and
+// it's called on every single pick for validation (scheduleFor() in server.js) plus every
+// bot/auto-draft check. With no caching, every pick during a week-mode draft paid that full
+// ESPN fetch fan-out synchronously — worse the closer to kickoff, as more of the week's slate
+// populates. Same cache pattern as todaysSchedule() below.
+const _weekSchedCache = new Map();
+const _WEEK_SCHED_TTL = 3 * 60 * 1000;
 async function weekSchedule(sport) {
   if (!WEEK_SLATE_SPORTS.has(sport)) return null;
+  const hit = _weekSchedCache.get(sport);
+  if (hit && Date.now() - hit.ts < _WEEK_SCHED_TTL) return hit.data;
+  const data = await _weekScheduleUncached(sport);
+  _weekSchedCache.set(sport, { data, ts: Date.now() });
+  return data;
+}
+async function _weekScheduleUncached(sport) {
   const pair = LEAGUES[sport];
   if (!pair) return null;
   const knownPos = new Map(PLAYERS.map((p) => [p.n, p.pos]));
