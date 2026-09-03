@@ -651,7 +651,17 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
     <h1 class="title" id="poolDetailTitle">Pool</h1>
     <div class="codeBox" style="margin-bottom:10px">
       <div class="l">POOL CODE</div>
-      <div class="c" id="poolCodeDisplay">······</div>
+      <div id="poolCodeDisplayArea" style="display:flex;align-items:center;justify-content:center;gap:10px">
+        <div class="c" id="poolCodeDisplay">······</div>
+        <button id="poolCodeEditBtn" title="Edit code" style="display:none;background:none;border:none;color:var(--dim);font-size:17px;cursor:pointer;padding:0;line-height:1">✏️</button>
+      </div>
+      <div id="poolCodeEditArea" style="display:none">
+        <input id="poolCodeEditIn" maxlength="12" placeholder="MYCODE" style="text-align:center;font-family:var(--display);font-size:26px;font-weight:700;letter-spacing:5px;text-transform:uppercase;width:180px;margin:4px 0" />
+        <div style="display:flex;gap:8px;justify-content:center;margin-top:8px">
+          <button class="mini green" id="poolCodeEditOk">Save</button>
+          <button class="mini" id="poolCodeEditCancel">Cancel</button>
+        </div>
+      </div>
     </div>
     <div id="poolStatusStrip" class="poolStatusStrip"></div>
     <div id="poolHandshakeBox" style="display:none">
@@ -1481,6 +1491,7 @@ function renderPoolDetail() {
   const st = curPool; if (!st) return;
   $("poolDetailTitle").textContent = st.name;
   $("poolCodeDisplay").textContent = st.code;
+  $("poolCodeEditBtn").style.display = (st.hostId === me.id && st.status === "open") ? "inline-block" : "none";
 
   const mine = st.entries.find((e) => e.userId === me.id);
   const alive = st.entries.filter((e) => e.alive);
@@ -1585,6 +1596,33 @@ async function submitPoolPick(team) {
   try { curPool = await api(`/api/pool/${_poolCode}/pick`, { userId: me.id, team }); renderPoolDetail(); toast(`Locked in ${team} for this week!`); }
   catch {}
 }
+
+// host-only pool code editing — mirrors _showCodeEdit/_hideCodeEdit/_doRecode for drafts
+function _showPoolCodeEdit() {
+  $("poolCodeEditIn").value = curPool.code;
+  $("poolCodeDisplayArea").style.display = "none";
+  $("poolCodeEditArea").style.display = "block";
+  $("poolCodeEditIn").focus(); $("poolCodeEditIn").select();
+}
+function _hidePoolCodeEdit() {
+  $("poolCodeDisplayArea").style.display = "flex";
+  $("poolCodeEditArea").style.display = "none";
+}
+async function _doPoolRecode() {
+  const nc = $("poolCodeEditIn").value.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (!nc || nc === curPool.code) { _hidePoolCodeEdit(); return; }
+  try {
+    const { code: newCode } = await api(`/api/pool/${curPool.code}/recode`, { hostId: me.id, newCode: nc });
+    _poolCode = newCode;
+    _hidePoolCodeEdit();
+    await refreshPoolDetail();
+    toast(`Pool code set to ${newCode}`);
+  } catch (e) { toast(e.message || "Code already taken"); }
+}
+$("poolCodeEditBtn").addEventListener("click", _showPoolCodeEdit);
+$("poolCodeEditOk").addEventListener("click", _doPoolRecode);
+$("poolCodeEditCancel").addEventListener("click", _hidePoolCodeEdit);
+$("poolCodeEditIn").addEventListener("keydown", (e) => { if (e.key === "Enter") _doPoolRecode(); if (e.key === "Escape") _hidePoolCodeEdit(); });
 
 $("newPool").addEventListener("click", () => { loadPoolsHub(); show("scrPools"); });
 // Sports that fit the pick-one-team-a-week format — mirrors SUICIDE_POOL_SPORTS server-side

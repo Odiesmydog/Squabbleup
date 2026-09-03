@@ -1048,6 +1048,27 @@ app.get("/api/pool/:code", ah(async (req, res) => {
   res.json(poolSafeState(st, req.query.userId));
 }));
 
+// host-only, mirrors /api/draft/:code/recode — restricted to "open" (pre-lock) the same
+// way that endpoint restricts to "lobby", since entries themselves are similarly frozen
+// once the first week locks
+app.post("/api/pool/:code/recode", ah(async (req, res) => {
+  const oldCode = req.params.code.toUpperCase();
+  const { hostId, newCode } = req.body;
+  const nc = String(newCode || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 12);
+  if (nc.length < 3) return res.status(400).json({ error: "Code must be 3–12 letters/numbers" });
+  const r = await pool.query("SELECT state FROM pools WHERE code=$1", [oldCode]);
+  if (!r.rows.length) return res.status(404).json({ error: "Pool not found" });
+  const st = r.rows[0].state;
+  if (st.hostId !== hostId) return res.status(403).json({ error: "Host only" });
+  if (st.status !== "open") return res.status(400).json({ error: "Can only change the code before the first week locks" });
+  const exists = await pool.query("SELECT 1 FROM pools WHERE code=$1", [nc]);
+  if (exists.rows.length) return res.status(409).json({ error: "That code is already taken" });
+  st.code = nc;
+  await pool.query("UPDATE pools SET code=$1, state=$2 WHERE code=$3", [nc, JSON.stringify(st), oldCode]);
+  await pool.query("UPDATE pool_invites SET pool_code=$1 WHERE pool_code=$2", [nc, oldCode]);
+  res.json({ code: nc });
+}));
+
 app.post("/api/pool/:code/join", ah(async (req, res) => {
   const code = req.params.code.toUpperCase();
   const { userId } = req.body;
