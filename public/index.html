@@ -253,6 +253,17 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
 .poolWheelWarn { color: var(--red); font-size: 13px; text-align: center; margin-top: 8px; font-weight: 700; }
 /* bottom nav */
 .bnav { position: fixed; left: 0; right: 0; bottom: 0; margin: 0 auto; width: min(540px, 100%); background: var(--panel); border-top: 2px solid var(--raised); display: flex; z-index: 20; padding-bottom: env(safe-area-inset-bottom); }
+/* always-on trollbox — sits just above the bottom nav, collapsible */
+/* z-index above .installBanner (30) — otherwise the install nudge banner (also fixed to
+   the viewport bottom) can land on top of the collapsed bar, same overlap bug fixed
+   earlier for the draft room, just a different fixed element colliding with this one */
+.trollbox { position: fixed; left: 0; right: 0; bottom: var(--bnav-h, 64px); margin: 0 auto; width: min(540px, 100%); background: var(--panel); border-top: 2px solid var(--raised); border-radius: 14px 14px 0 0; z-index: 31; box-shadow: 0 -4px 16px rgba(0,0,0,.35); display: flex; flex-direction: column; overflow: hidden; }
+.trollboxBar { display: flex; align-items: center; justify-content: space-between; padding: 11px 16px; cursor: pointer; flex-shrink: 0; }
+.trollboxBar .t { font-family: var(--display); font-weight: 700; font-size: 14px; }
+.trollboxBar #trollboxChevron { color: var(--dim); font-size: 12px; transition: transform .15s; }
+.trollboxBar .bdg { background: var(--red); color: #fff; font-size: 10px; font-weight: 800; border-radius: 8px; padding: 1px 6px; margin-left: 6px; }
+.trollboxBody { display: flex; flex-direction: column; height: 44vh; border-top: 1px solid var(--raised); }
+.trollboxBody .chatMsgs { flex: 1; }
 .bnav button { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 9px 0 7px; color: var(--dim); font-family: var(--display); font-size: 10.5px; font-weight: 600; position: relative; }
 .bnav button .i { font-size: 20px; }
 .bnav button.on { color: var(--green); }
@@ -814,6 +825,18 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
   <button data-bt="profile"><span class="i">👤</span>Profile</button>
 </nav>
 
+<!-- always-on trollbox — lives on the Home tab only, sits above the bottom nav -->
+<div class="trollbox" id="trollbox" style="display:none">
+  <div class="trollboxBar" id="trollboxBar">
+    <span class="t">💬 Trollbox</span>
+    <span id="trollboxChevron">▲</span>
+  </div>
+  <div class="trollboxBody" id="trollboxBody" style="display:none">
+    <div class="chatMsgs" id="trollboxMsgs"></div>
+    <div class="chatIn"><input id="trollboxIn" placeholder="Say something…" maxlength="280" /><button id="trollboxSend">➤</button></div>
+  </div>
+</div>
+
 <!-- pass & play setup modal -->
 <div class="modal" id="localModal">
   <div class="sheet">
@@ -1010,6 +1033,9 @@ async function gotoTab(t) {
   } else {
     clearInterval(_pubPollT); _pubPollT = null;
   }
+  // trollbox only lives on the Home tab
+  if (t === "home") { _syncBnavHeight(); $("trollbox").style.display = "flex"; }
+  else { $("trollbox").style.display = "none"; _closeTrollbox(); }
   // Show stale data instantly, then refresh in background
   if (homeData) { renderTabs(); if (t === "profile") renderProfileTab(); }
   try {
@@ -2633,6 +2659,70 @@ for (const [btn, inp] of [["lobbyChatSend", "lobbyChatIn"], ["roomChatSend", "ro
   $(btn).addEventListener("click", () => sendChat(inp));
   $(inp).addEventListener("keydown", (e) => { if (e.key === "Enter") sendChat(inp); });
 }
+
+// ================= trollbox (always-on global chat, Home tab only) =================
+let _trollboxOpen = false, _trollboxPollT = null, _trollboxMsgs = [];
+function _syncBnavHeight() {
+  const h = $("bnav")?.offsetHeight;
+  if (h) document.documentElement.style.setProperty("--bnav-h", h + "px");
+}
+window.addEventListener("resize", _syncBnavHeight);
+// squabble/pool invite links pasted into chat become tappable "join" buttons instead of
+// plain text — only recognizes this app's own share links, not arbitrary URLs
+function _detectInviteLink(text) {
+  const m = text.match(/\/\?(join|joinpool)=([A-Z0-9]{3,12})/i);
+  if (!m) return null;
+  return { kind: m[1].toLowerCase() === "joinpool" ? "pool" : "draft", code: m[2].toUpperCase() };
+}
+function _trollboxMsgHtml(m) {
+  const mine = m.user_id === me.id;
+  const link = _detectInviteLink(m.text);
+  const joinBtn = link
+    ? `<button class="mini green" style="margin-top:6px;display:block" data-troll-join="${esc(link.code)}" data-troll-kind="${link.kind}">▶ Join ${link.kind === "pool" ? "pool" : "squabble"} ${esc(link.code)}</button>`
+    : "";
+  return `<div class="cMsg ${mine ? "mine" : ""}">${avHtml(m)}
+    <div><div class="who">${esc(m.name)}</div><div class="bub">${esc(m.text)}${joinBtn}</div></div>
+  </div>`;
+}
+function _renderTrollbox() {
+  const el = $("trollboxMsgs");
+  const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  el.innerHTML = _trollboxMsgs.length ? _trollboxMsgs.map(_trollboxMsgHtml).join("") : `<div class="chatEmpty">No messages yet — say hi 👋</div>`;
+  if (nearBottom || !_trollboxMsgs.length) el.scrollTop = el.scrollHeight;
+}
+async function _pollTrollbox() {
+  if (document.hidden) return;
+  try { _trollboxMsgs = await api("/api/chat/global"); _renderTrollbox(); } catch {}
+}
+function _openTrollbox() {
+  _trollboxOpen = true;
+  $("trollboxBody").style.display = "flex";
+  $("trollboxChevron").textContent = "▼";
+  _pollTrollbox();
+  clearInterval(_trollboxPollT);
+  _trollboxPollT = setInterval(_pollTrollbox, 4000);
+}
+function _closeTrollbox() {
+  _trollboxOpen = false;
+  $("trollboxBody").style.display = "none";
+  $("trollboxChevron").textContent = "▲";
+  clearInterval(_trollboxPollT); _trollboxPollT = null;
+}
+$("trollboxBar").addEventListener("click", () => { _trollboxOpen ? _closeTrollbox() : _openTrollbox(); });
+async function _sendTrollbox() {
+  const el = $("trollboxIn");
+  const text = el.value.trim();
+  if (!text || !me?.id) return;
+  el.value = "";
+  try { await api("/api/chat/global", { userId: me.id, text }); _pollTrollbox(); } catch {}
+}
+$("trollboxSend").addEventListener("click", _sendTrollbox);
+$("trollboxIn").addEventListener("keydown", (e) => { if (e.key === "Enter") _sendTrollbox(); });
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-troll-join]"); if (!btn) return;
+  const code = btn.getAttribute("data-troll-join");
+  btn.getAttribute("data-troll-kind") === "pool" ? joinPoolByCode(code) : joinByCode(code);
+});
 
 // ================= matchup / scoring =================
 let scoresCache = {}, scoresDetail = {}, projCache = {}, scoresT = null;

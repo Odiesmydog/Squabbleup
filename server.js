@@ -97,6 +97,14 @@ async function initDb() {
       val BIGINT NOT NULL DEFAULT 0
     );
     INSERT INTO stats (key, val) VALUES ('drafts_created', 0) ON CONFLICT DO NOTHING;
+    CREATE TABLE IF NOT EXISTS global_chat (
+      id BIGSERIAL PRIMARY KEY,
+      user_id UUID NOT NULL,
+      name TEXT NOT NULL, av TEXT, img TEXT,
+      text TEXT NOT NULL,
+      created TIMESTAMPTZ DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_global_chat_id ON global_chat(id DESC);
     CREATE TABLE IF NOT EXISTS pools (
       code TEXT PRIMARY KEY,
       state JSONB NOT NULL,
@@ -972,6 +980,29 @@ app.post("/api/draft/:code/chat", ah(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// global chat ("trollbox") — one persistent room for everyone, polled rather than pushed
+// over WS since it isn't scoped to any single draft's socket subscriptions
+app.get("/api/chat/global", ah(async (req, res) => {
+  const r = await pool.query("SELECT id, user_id, name, av, img, text FROM global_chat ORDER BY id DESC LIMIT 100");
+  res.json(r.rows.reverse());
+}));
+app.post("/api/chat/global", ah(async (req, res) => {
+  const { userId, text } = req.body;
+  const msg = String(text || "").trim().slice(0, 280);
+  if (!msg) return res.status(400).json({ error: "Empty message" });
+  const u = (await pool.query("SELECT name, av, img FROM users WHERE id=$1", [userId])).rows[0];
+  if (!u) return res.status(404).json({ error: "register first" });
+  const r = await pool.query("INSERT INTO global_chat (user_id, name, av, img, text) VALUES ($1,$2,$3,$4,$5) RETURNING id", [userId, u.name, u.av, u.img, msg]);
+  res.json({ ok: true, id: r.rows[0].id });
+}));
+// moderation: delete a single abusive message (secured by ADMIN_KEY env var)
+app.delete("/api/admin/chat/global/:id", ah(async (req, res) => {
+  const key = req.headers["x-admin-key"];
+  if (!key || key !== process.env.ADMIN_KEY) return res.status(403).json({ error: "Forbidden" });
+  await pool.query("DELETE FROM global_chat WHERE id=$1", [req.params.id]);
+  res.json({ ok: true });
+}));
+
 // admin: force-delete any stuck draft by code (secured by ADMIN_KEY env var)
 app.delete("/api/admin/draft/:code", ah(async (req, res) => {
   const key = req.headers["x-admin-key"];
@@ -1409,6 +1440,14 @@ initDb().then(() => {
   }
   cleanupStaleLobbies();
   setInterval(cleanupStaleLobbies, 60 * 1000);
+
+  // "never ends" only applies to the conversation, not the table — keep the last 500
+  // messages, prune the rest. Not urgent, so this runs on a long interval.
+  const pruneGlobalChat = () => pool.query(
+    "DELETE FROM global_chat WHERE id NOT IN (SELECT id FROM global_chat ORDER BY id DESC LIMIT 500)"
+  ).catch((e) => console.error("prune global_chat", e.message));
+  pruneGlobalChat();
+  setInterval(pruneGlobalChat, 10 * 60 * 1000);
 
   processSurvivorPools();
   setInterval(processSurvivorPools, SURVIVOR_POLL_MIN * 60 * 1000);
