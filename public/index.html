@@ -2721,7 +2721,16 @@ function renderMatchup(targetId) {
   $(targetId).innerHTML =
     `<div class="scoreNote muTopNote"><span>Tap a name to minimize · tap a player for their box score</span><button type="button" class="muCollapseAll" data-target="${targetId}">${allCollapsed ? "Expand all" : "Minimize all"}</button></div>` +
     `<div class="muList">${teamHtml}</div>` +
-    `<div class="scoreNote">proj = 30-day avg · updates every 5 min${draft.scoring ? ` · ends ${new Date(draft.scoring.end).toLocaleDateString()}` : ""}</div>`;
+    `<div class="scoreNote">proj = 30-day avg · updates every 5 min${draft.scoring ? ` · ends ${new Date(draft.scoring.end).toLocaleDateString()}` : ""}</div>` +
+    // same explanation already shown on the Results tab — reused verbatim here so it's
+    // visible right where people are actually looking at scores, not just on the list screen
+    `<div class="stepLbl" style="margin-top:20px">How scoring works</div>` +
+    `<div class="bCol" style="cursor:default">
+      <div class="bPick"><span class="rd">1</span><span>Finish a draft — that locks your roster.</span></div>
+      <div class="bPick"><span class="rd">2</span><span>A scoring window opens — 1 day for NBA/MLB/NHL/UFC/Soccer, through end of tournament week for Golf (Thu–Sun), 7 days for NFL. Your players earn fantasy points from their real games.</span></div>
+      <div class="bPick"><span class="rd">3</span><span>Stats come from live box scores, refreshed every few minutes — identical for everyone in the draft.</span></div>
+      <div class="bPick"><span class="rd">4</span><span>Highest total when the window closes wins the squabble. 👑</span></div>
+    </div>`;
 
   $(targetId).querySelectorAll(".muTeamHead[data-mti]").forEach((head) => {
     head.addEventListener("click", () => {
