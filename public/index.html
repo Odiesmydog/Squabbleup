@@ -188,7 +188,10 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
 .cMsg.mine .bub { background: var(--green); color: var(--ink); border-radius: 14px 14px 4px 14px; }
 .cMsg.mine .who { display: none; }
 .chatIn { display: flex; gap: 8px; padding: 10px; border-top: 2px solid var(--raised); }
-.chatIn input { flex: 1; background: var(--bg); border: 2px solid var(--line); border-radius: 999px; padding: 10px 15px; color: var(--text); font-size: 15px; font-weight: 700; min-width: 0; }
+/* 16px, not 15 — anything smaller triggers iOS/Android's auto-zoom-on-focus, and since
+   this is a single-page app the zoom level never resets afterward (same root cause as the
+   New Pool screen zoom bug fixed earlier) */
+.chatIn input { flex: 1; background: var(--bg); border: 2px solid var(--line); border-radius: 999px; padding: 10px 15px; color: var(--text); font-size: 16px; font-weight: 700; min-width: 0; }
 .chatIn button { font-size: 19px; background: var(--green); color: var(--ink); border-radius: 50%; width: 42px; height: 42px; box-shadow: 0 3px 0 var(--green-d); flex-shrink: 0; }
 .chatEmpty { color: var(--dim); text-align: center; font-size: 13px; margin: auto; }
 
@@ -828,7 +831,7 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
 <!-- always-on trollbox — lives on the Home tab only, sits above the bottom nav -->
 <div class="trollbox" id="trollbox" style="display:none">
   <div class="trollboxBar" id="trollboxBar">
-    <span class="t">💬 Trollbox</span>
+    <span class="t">💬 Chat</span>
     <span id="trollboxChevron">▲</span>
   </div>
   <div class="trollboxBody" id="trollboxBody" style="display:none">
