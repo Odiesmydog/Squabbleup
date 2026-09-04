@@ -1037,7 +1037,7 @@ async function gotoTab(t) {
     clearInterval(_pubPollT); _pubPollT = null;
   }
   // trollbox only lives on the Home tab
-  if (t === "home") { _syncBnavHeight(); $("trollbox").style.display = "flex"; }
+  if (t === "home") { _syncBottomChrome(); $("trollbox").style.display = "flex"; }
   else { $("trollbox").style.display = "none"; _closeTrollbox(); }
   // Show stale data instantly, then refresh in background
   if (homeData) { renderTabs(); if (t === "profile") renderProfileTab(); }
@@ -2019,9 +2019,12 @@ function connect(code) {
   }, 3500);
 }
 function leaveDraft() {
-  // Restore the install banner if it was suppressed for the room (see renderRoom())
+  // Restore the install banner and the global chat widget if they were suppressed for
+  // the room (see renderRoom()) — gotoTab() will re-hide the chat widget a moment later
+  // if we're not actually headed back to Home, same as it already does for any other tab.
   const ib = $("installBanner");
   if (ib) ib.style.display = "";
+  $("trollbox").style.display = curTab === "home" ? "flex" : "none";
   // Auto Draft deliberately stays ON server-side when leaving/closing — the server has its
   // own fallback (serverAutoDraft in server.js) that keeps drafting this seat even with no
   // client connected, so navigating away or closing the app must never silently turn it off.
@@ -2355,6 +2358,12 @@ function renderRoom() {
     // suppressed for the duration of the room and restored in leaveDraft().
     const ib = $("installBanner");
     if (ib) ib.style.display = "none";
+    // The draft room isn't reached through gotoTab() (which is what normally hides the
+    // global chat widget for every non-Home tab), so without this it stayed floating on
+    // top of the room — right on top of the room's own per-draft chat, showing as two
+    // chats at once. _closeTrollbox() also stops its polling, not just the visuals.
+    _closeTrollbox();
+    $("trollbox").style.display = "none";
     todaysPlayers = null; nextGameDay = null; todayMatchups = {}; todaysRoster = []; scheduleFutureDate = null; draftRoomProj = {}; playerStatus = {};
     fetchTodaysTeams(draft.sport).then(() => renderRoom());
     // refresh roster + projections every 60s so started games, probable pitchers
@@ -2665,11 +2674,16 @@ for (const [btn, inp] of [["lobbyChatSend", "lobbyChatIn"], ["roomChatSend", "ro
 
 // ================= trollbox (always-on global chat, Home tab only) =================
 let _trollboxOpen = false, _trollboxPollT = null, _trollboxMsgs = [];
-function _syncBnavHeight() {
-  const h = $("bnav")?.offsetHeight;
-  if (h) document.documentElement.style.setProperty("--bnav-h", h + "px");
+// Both the bottom nav AND the install banner are position:fixed to the viewport bottom —
+// stack the chat widget above whichever of them is actually visible right now, not just
+// the nav, or the banner (usually taller) collides with the chat bar sitting on top of it.
+function _syncBottomChrome() {
+  const bnavH = $("bnav")?.offsetHeight || 0;
+  const banner = $("installBanner");
+  const bannerH = (banner && banner.style.display !== "none") ? banner.offsetHeight : 0;
+  document.documentElement.style.setProperty("--bnav-h", (bnavH + bannerH) + "px");
 }
-window.addEventListener("resize", _syncBnavHeight);
+window.addEventListener("resize", _syncBottomChrome);
 // squabble/pool invite links pasted into chat become tappable "join" buttons instead of
 // plain text — only recognizes this app's own share links, not arbitrary URLs
 function _detectInviteLink(text) {
@@ -3167,6 +3181,7 @@ function _removeInstallBanner() {
   if (el._reserveHandler) window.removeEventListener("resize", el._reserveHandler);
   document.body.style.paddingBottom = "";
   el.remove();
+  _syncBottomChrome(); // chat widget can drop back down now that the banner's gone
 }
 function _showInstallBanner(type) {
   if ($("installBanner")) return;
@@ -3183,7 +3198,7 @@ function _showInstallBanner(type) {
   // open, don't let the banner appear on top of it either — same reasoning as renderRoom().
   if ($("scrRoom").classList.contains("on")) el.style.display = "none";
   const reserve = () => { document.body.style.paddingBottom = el.getBoundingClientRect().height + "px"; };
-  requestAnimationFrame(reserve);
+  requestAnimationFrame(() => { reserve(); _syncBottomChrome(); }); // chat widget stacks above the banner too, once it has a real height
   el._reserveHandler = reserve;
   window.addEventListener("resize", reserve);
   $("installClose").addEventListener("click", () => { _removeInstallBanner(); _dismissInstall(); });
