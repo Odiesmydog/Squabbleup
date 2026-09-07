@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
 <title>SquabbleUP — Snake drafts with your friends</title>
 <meta name="description" content="Live snake drafts with friends across every sport. Share a link, everyone picks from their own phone." />
 <link rel="manifest" href="/manifest.json" />
@@ -947,7 +947,22 @@ const $ = (id) => document.getElementById(id);
 // switching screens swaps display:none/block on the same scroll container, so without
 // resetting scroll position a new (often shorter) screen renders wherever the old one had
 // scrolled to — landing at the bottom of a fresh screen with nothing to see above the fold
-const show = (id) => { document.querySelectorAll(".screen").forEach((s) => s.classList.remove("on")); $(id).classList.add("on"); window.scrollTo(0, 0); };
+// show() is the one chokepoint every screen transition already runs through (tab switches,
+// joining a draft, opening a pool, wizards, everything) — so it's the correct place to gate
+// the global chat widget, not gotoTab() (only covers bottom-nav taps) or one-off suppression
+// in individual screens (which only ever catches the cases someone thought to add — the
+// pools screen, the draft room, ... — and misses the next one). It's only ever meant to be
+// visible on Home.
+const show = (id) => {
+  document.querySelectorAll(".screen").forEach((s) => s.classList.remove("on"));
+  $(id).classList.add("on");
+  window.scrollTo(0, 0);
+  const tb = $("trollbox");
+  if (tb) {
+    if (id === "scrHome") { tb.style.display = "flex"; _syncBottomChrome(); }
+    else { _closeTrollbox(); tb.style.display = "none"; }
+  }
+};
 const esc = (s) => String(s).replace(/[<>&"]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;" }[c]));
 const avHtml = (p, cls = "av") => `<span class="${cls}">${p.img ? `<img src="${esc(p.img)}" alt="" onerror="this.remove()" />` : (p.av || "🙂")}</span>`;
 let toastT;
@@ -1018,7 +1033,13 @@ function renderTop() {
 }
 
 // ================= tabs + home data =================
-let homeData = null, curTab = "home", _archOpen = false;
+// Persist the last-known home data across full page loads (closing/reopening the PWA, a
+// hard refresh) — without this, homeData starts null every single time, so there was never
+// anything for the "show stale data instantly" line below to actually show on a fresh boot.
+// That gap is what made the app feel like it was "logging in" slow/fresh every time instead
+// of just always being there — now it renders instantly from cache while the real fetch
+// happens in the background, same pattern as `me` itself already uses.
+let homeData = JSON.parse(localStorage.getItem("squp_homeData") || "null"), curTab = "home", _archOpen = false;
 const TABSCR = { home: "scrHome", drafts: "scrDrafts", live: "scrLive", results: "scrResults", profile: "scrProfile" };
 async function gotoTab(t) {
   curTab = t;
@@ -1036,15 +1057,13 @@ async function gotoTab(t) {
   } else {
     clearInterval(_pubPollT); _pubPollT = null;
   }
-  // trollbox only lives on the Home tab
-  if (t === "home") { _syncBottomChrome(); $("trollbox").style.display = "flex"; }
-  else { $("trollbox").style.display = "none"; _closeTrollbox(); }
   // Show stale data instantly, then refresh in background
   if (homeData) { renderTabs(); if (t === "profile") renderProfileTab(); }
   try {
     homeData = await api("/api/me/" + me.id);
     // keep local identity in sync with server truth (name edits elsewhere, etc)
     if (homeData?.user) { me = { ...me, ...homeData.user }; localStorage.setItem("squp_me", JSON.stringify(me)); }
+    localStorage.setItem("squp_homeData", JSON.stringify(homeData));
     renderTabs();
     if (t === "profile") renderProfileTab();
   } catch { return; }
@@ -1747,6 +1766,7 @@ $("deleteAccountBtn").addEventListener("click", async () => {
     await api("/api/account/delete", { userId: me.id });
     localStorage.removeItem("squp_me");
     localStorage.removeItem("squp_local");
+    localStorage.removeItem("squp_homeData");
     toast("Account deleted");
     setTimeout(() => location.reload(), 800);
   } catch {}
@@ -2019,12 +2039,11 @@ function connect(code) {
   }, 3500);
 }
 function leaveDraft() {
-  // Restore the install banner and the global chat widget if they were suppressed for
-  // the room (see renderRoom()) — gotoTab() will re-hide the chat widget a moment later
-  // if we're not actually headed back to Home, same as it already does for any other tab.
+  // Restore the install banner if it was suppressed for the room (see renderRoom()) — the
+  // global chat widget no longer needs a matching restore here, show() itself now decides
+  // its visibility on every screen transition, including whatever happens right after this.
   const ib = $("installBanner");
   if (ib) ib.style.display = "";
-  $("trollbox").style.display = curTab === "home" ? "flex" : "none";
   // Auto Draft deliberately stays ON server-side when leaving/closing — the server has its
   // own fallback (serverAutoDraft in server.js) that keeps drafting this seat even with no
   // client connected, so navigating away or closing the app must never silently turn it off.
@@ -2358,12 +2377,7 @@ function renderRoom() {
     // suppressed for the duration of the room and restored in leaveDraft().
     const ib = $("installBanner");
     if (ib) ib.style.display = "none";
-    // The draft room isn't reached through gotoTab() (which is what normally hides the
-    // global chat widget for every non-Home tab), so without this it stayed floating on
-    // top of the room — right on top of the room's own per-draft chat, showing as two
-    // chats at once. _closeTrollbox() also stops its polling, not just the visuals.
-    _closeTrollbox();
-    $("trollbox").style.display = "none";
+    // (global chat widget suppression is now handled centrally by show(), called above)
     todaysPlayers = null; nextGameDay = null; todayMatchups = {}; todaysRoster = []; scheduleFutureDate = null; draftRoomProj = {}; playerStatus = {};
     fetchTodaysTeams(draft.sport).then(() => renderRoom());
     // refresh roster + projections every 60s so started games, probable pitchers
