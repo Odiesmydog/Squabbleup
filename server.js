@@ -362,6 +362,11 @@ async function cached(key, ttlMs, fn) {
   _microCache.set(key, { t: Date.now(), data });
   return data;
 }
+// A freshly-created public room could sit behind this cache's 5s TTL, and the client's own
+// 20s poll interval on top of that — worst case ~25s before a brand-new public room shows up
+// for anyone, including its own host. Bust it immediately on any change that affects who
+// should currently be visible in the public lobby (created, joined, started, or closed).
+const invalidateLobbyCache = () => _microCache.delete("lobby");
 
 app.get("/api/push/key", (req, res) => res.json({ key: VAPID_PUBLIC }));
 app.post("/api/push/subscribe", ah(async (req, res) => {
@@ -512,6 +517,7 @@ app.post("/api/draft/create", ah(async (req, res) => {
   };
   await pool.query("INSERT INTO drafts (code, state, participants) VALUES ($1,$2,$3)", [code, state, [hostId]]);
   pool.query("UPDATE stats SET val = val + 1 WHERE key='drafts_created'").catch(() => {});
+  if (state.public) invalidateLobbyCache();
   res.json({ code });
 }));
 
@@ -653,6 +659,7 @@ app.post("/api/draft/:code/join", ah(async (req, res) => {
       st.seats.push({ userId, name: u.name, av: u.av, img: u.img, bot: false, roster: [] });
       await client.query("UPDATE drafts SET state=$1, participants=array_append(participants,$2), updated=now() WHERE code=$3", [st, userId, code]);
       await client.query("DELETE FROM invites WHERE draft_code=$1 AND to_user=$2", [code, userId]);
+      if (st.public) invalidateLobbyCache(); // seat count shown in the public list just changed
     }
     await client.query("COMMIT");
   } catch (e) { await client.query("ROLLBACK"); throw e; }
@@ -744,6 +751,7 @@ async function activateCountdown(code) {
     const st = r.rows[0].state;
     st.pickStartedAt = Date.now();
     await pool.query("UPDATE drafts SET state=$1, updated=now() WHERE code=$2", [st, code]);
+    if (st.public) invalidateLobbyCache(); // no longer joinable, shouldn't linger in the public list
     broadcast(code).catch(console.error);
     console.log("Countdown-activated draft:", code);
   } catch (e) { console.error("activateCountdown", e.message); }
@@ -796,6 +804,7 @@ app.post("/api/draft/:code/close", ah(async (req, res) => {
   if (st.hostId !== hostId) return res.status(403).json({ error: "Only the host can close the room" });
   if (st.public && st.status !== "lobby") return res.status(400).json({ error: "Public drafts cannot be cancelled once started" });
   await pool.query("DELETE FROM drafts WHERE code=$1", [code]);
+  if (st.public) invalidateLobbyCache();
   broadcastDeleted(code);
   res.json({ ok: true });
 }));
