@@ -1727,9 +1727,14 @@ function renderPoolDetail() {
   }).join("") || `<div class="emptyBox"><div class="e">🏈</div>No entrants yet.</div>`;
 
   $("poolAliveCount").textContent = `· ${alive.length}/${st.entries.length}`;
+  const isHostView = st.hostId === me.id;
   let rosterHtml = st.entries.map((e) => {
     const pill = e.alive ? `<span class="poolPill alive">ALIVE</span>` : `<span class="poolPill dead">OUT — wk ${esc(String(e.eliminatedWeek || ""))}</span>`;
-    return `<div class="poolEntryRow ${e.alive ? "" : "dead"}">${avHtml(e)}<span class="nm">${esc(e.name)}</span>${pill}</div>`;
+    // host can remove anyone but themselves, any time — mistaken invites, inactive people,
+    // whatever the reason, not restricted to before the pool starts like leaving yourself is
+    const removeBtn = (isHostView && e.userId !== me.id)
+      ? `<button style="background:var(--raised);color:var(--dim);width:30px;height:30px;border-radius:8px;flex-shrink:0;font-size:15px;line-height:1" data-pool-remove-entry="${esc(e.userId)}" data-pool-remove-name="${esc(e.name)}" title="Remove from pool">✕</button>` : "";
+    return `<div class="poolEntryRow ${e.alive ? "" : "dead"}">${avHtml(e)}<span class="nm">${esc(e.name)}</span>${pill}${removeBtn}</div>`;
   }).join("");
   if (st.status === "complete" && st.winners?.length) {
     const names = st.winners.map((id) => st.entries.find((e) => e.userId === id)?.name || "?").join(", ");
@@ -1845,6 +1850,19 @@ document.addEventListener("click", async (e) => {
       await api(`/api/pool/${code}/${isHost ? "close" : "leave"}`, isHost ? { hostId: me.id } : { userId: me.id });
       toast(isHost ? "Pool closed" : "Left the pool");
       loadPoolsHub();
+    } catch {}
+    return;
+  }
+  const removeBtn = e.target.closest("[data-pool-remove-entry]");
+  if (removeBtn) {
+    e.stopPropagation();
+    const targetUserId = removeBtn.getAttribute("data-pool-remove-entry");
+    const targetName = removeBtn.getAttribute("data-pool-remove-name");
+    if (!curPool || !confirm(`Remove ${targetName} from this pool?`)) return;
+    try {
+      curPool = await api(`/api/pool/${curPool.code}/removeentry`, { hostId: me.id, userId: targetUserId });
+      renderPoolDetail();
+      toast(`${targetName} removed`);
     } catch {}
     return;
   }

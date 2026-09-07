@@ -1180,6 +1180,32 @@ app.post("/api/pool/:code/leave", ah(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// host-only, unlike /leave this isn't restricted to "open" — a host managing who's actually
+// in their pool (a mistaken invite, an inactive account, someone who needs to go) is a
+// different action than a participant's own voluntary exit, which is why /leave freezes at
+// the same point entries do but this doesn't
+app.post("/api/pool/:code/removeentry", ah(async (req, res) => {
+  const code = req.params.code.toUpperCase();
+  const { hostId, userId } = req.body;
+  const client = await pool.connect();
+  let st;
+  try {
+    await client.query("BEGIN");
+    const r = await client.query("SELECT state FROM pools WHERE code=$1 FOR UPDATE", [code]);
+    st = r.rows[0]?.state;
+    if (!st) { await client.query("ROLLBACK"); return res.status(404).json({ error: "Pool not found" }); }
+    if (st.hostId !== hostId) { await client.query("ROLLBACK"); return res.status(403).json({ error: "Host only" }); }
+    if (userId === hostId) { await client.query("ROLLBACK"); return res.status(400).json({ error: "Can't remove yourself — close the pool instead" }); }
+    const before = st.entries.length;
+    st.entries = st.entries.filter((e) => e.userId !== userId);
+    if (st.entries.length === before) { await client.query("ROLLBACK"); return res.status(404).json({ error: "That person isn't in this pool" }); }
+    await client.query("UPDATE pools SET state=$1, participants=array_remove(participants,$2), updated=now() WHERE code=$3", [st, userId, code]);
+    await client.query("COMMIT");
+  } catch (e) { await client.query("ROLLBACK"); throw e; }
+  finally { client.release(); }
+  res.json(poolSafeState(st, hostId));
+}));
+
 app.post("/api/pool/:code/pick", ah(async (req, res) => {
   const code = req.params.code.toUpperCase();
   const { userId, team } = req.body;
