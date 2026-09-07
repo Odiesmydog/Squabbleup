@@ -1084,7 +1084,7 @@ app.post("/api/pool/create", ah(async (req, res) => {
     entries: [{ userId: hostId, name: u.name, av: u.av, img: u.img, alive: true, eliminatedWeek: null, usedTeams: [], picks: [] }],
     week: {
       key: live.weekKey, deadline: poolWeekDeadline(pre),
-      games: pre, remindersSent: { "24h": false, "3h": false }, locked: false, eliminationsProcessed: false,
+      games: pre, remindersSent: { "24h": false, "3h": false, "1h": false }, locked: false, eliminationsProcessed: false,
     },
     winners: null,
   };
@@ -1383,13 +1383,17 @@ async function tickPool(code, live) {
       changed = true;
     }
 
-    // (b) reminders — 24h and 3h before deadline, only to alive entrants who haven't picked yet
-    for (const [win, hrs] of [["24h", 24], ["3h", 3]]) {
+    // (b) reminders — 24h, 3h, and 1h before deadline, only to alive entrants who haven't
+    // picked yet. Checked every SURVIVOR_POLL_MIN (3 min), so "1h" fires somewhere in the
+    // ~57-60 min window, not the literal top of the hour — close enough for a heads-up.
+    for (const [win, hrs] of [["24h", 24], ["3h", 3], ["1h", 1]]) {
       if (!st.week.remindersSent[win] && now >= st.week.deadline - hrs * 3600e3 && now < st.week.deadline) {
         const targets = st.entries.filter((e) => e.alive && !e.picks.find((p) => p.weekKey === st.week.key));
         await Promise.all(targets.map((e) => sendPush(e.userId, {
-          title: hrs === 3 ? "⏰ Last call to pick!" : "Pick reminder",
-          body: `${hrs} hours left to make your pick in "${st.name}"`,
+          title: hrs === 1 ? "⏰ 1 hour left to pick!" : hrs === 3 ? "⏰ Last call to pick!" : "Pick reminder",
+          body: hrs === 1
+            ? `Picks close for this week in about an hour in "${st.name}" — don't get locked out.`
+            : `${hrs} hours left to make your pick in "${st.name}"`,
           data: { poolCode: code, kind: "survivor-reminder" },
         }).catch(() => {})));
         st.week.remindersSent[win] = true; changed = true;
@@ -1420,7 +1424,7 @@ async function tickPool(code, live) {
       if (pre.length) {
         st.week = {
           key: live.weekKey, deadline: poolWeekDeadline(pre),
-          games: pre, remindersSent: { "24h": false, "3h": false }, locked: false, eliminationsProcessed: false,
+          games: pre, remindersSent: { "24h": false, "3h": false, "1h": false }, locked: false, eliminationsProcessed: false,
         };
         changed = true;
       }
