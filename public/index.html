@@ -239,20 +239,22 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
 .poolDeadlineBox { background: var(--panel); border-radius: var(--r); text-align: center; padding: 14px; margin-bottom: 16px; box-shadow: 0 4px 0 #0D0815; }
 .poolLockedCard { background: var(--panel); border: 2.5px solid var(--green); border-radius: var(--r); padding: 18px; text-align: center; margin-bottom: 10px; }
 /* iPhone-style team scroll wheel */
-.teamWheelWrap { position: relative; height: 168px; margin-bottom: 4px; }
-.teamWheelHighlight { position: absolute; top: 56px; left: 0; right: 0; height: 56px; border-top: 2px solid var(--purple); border-bottom: 2px solid var(--purple); background: rgba(168,85,247,.1); pointer-events: none; z-index: 2; }
-.teamWheel { height: 168px; overflow-y: auto; scroll-snap-type: y mandatory; -webkit-overflow-scrolling: touch; scrollbar-width: none; mask-image: linear-gradient(to bottom, transparent, #000 25%, #000 75%, transparent); }
+.teamWheelWrap { position: relative; height: 198px; margin-bottom: 4px; }
+.teamWheelHighlight { position: absolute; top: 66px; left: 0; right: 0; height: 66px; border-top: 2px solid var(--purple); border-bottom: 2px solid var(--purple); background: rgba(168,85,247,.1); pointer-events: none; z-index: 2; }
+.teamWheel { height: 198px; overflow-y: auto; scroll-snap-type: y mandatory; -webkit-overflow-scrolling: touch; scrollbar-width: none; mask-image: linear-gradient(to bottom, transparent, #000 25%, #000 75%, transparent); }
 .teamWheel::-webkit-scrollbar { display: none; }
-.teamWheelSpacer { height: 56px; scroll-snap-align: none; }
-.teamWheelRow { height: 56px; display: flex; align-items: center; gap: 12px; padding: 0 18px; scroll-snap-align: center; cursor: pointer; }
-.teamWheelRow .twLogo { width: 30px; height: 30px; object-fit: contain; flex-shrink: 0; }
-.teamWheelRow .twTeam { font-family: var(--display); font-weight: 800; font-size: 20px; color: var(--text); flex-shrink: 0; }
+.teamWheelSpacer { height: 66px; scroll-snap-align: none; }
+.teamWheelRow { height: 66px; display: flex; align-items: center; gap: 13px; padding: 0 18px; scroll-snap-align: center; cursor: pointer; }
+.teamWheelRow .twLogo { width: 36px; height: 36px; object-fit: contain; flex-shrink: 0; }
+.teamWheelRow .twTeamCol { display: flex; flex-direction: column; flex-shrink: 0; }
+.teamWheelRow .twTeam { font-family: var(--display); font-weight: 800; font-size: 22px; color: var(--text); line-height: 1.15; }
+.teamWheelRow .twName { font-size: 12px; color: var(--dim); font-weight: 600; }
 .teamWheelRow .twMeta { margin-left: auto; display: flex; flex-direction: column; align-items: flex-end; gap: 1px; }
-.teamWheelRow .twWinPct { font-size: 13px; font-weight: 800; color: var(--green); }
-.teamWheelRow .twOpp { font-size: 10.5px; color: var(--dim); }
+.teamWheelRow .twWinPct { font-size: 14px; font-weight: 800; color: var(--green); }
+.teamWheelRow .twOpp { font-size: 11px; color: var(--dim); }
 .teamWheelRow.used { opacity: .35; }
 .teamWheelRow.used .twTeam { text-decoration: line-through; color: var(--dim); }
-.teamWheelRow .twUsedTag { font-size: 11px; font-weight: 800; color: var(--red); letter-spacing: .3px; }
+.teamWheelRow .twUsedTag { font-size: 12px; font-weight: 800; color: var(--red); letter-spacing: .3px; }
 .poolWheelWarn { color: var(--red); font-size: 13px; text-align: center; margin-top: 8px; font-weight: 700; }
 .poolTrophy { font-size: 88px; line-height: 1; margin: 6px 0 4px; animation: poolTrophyBounce 1.1s ease-in-out infinite; filter: drop-shadow(0 0 22px rgba(255,200,60,.55)); }
 @keyframes poolTrophyBounce { 0%, 100% { transform: translateY(0) rotate(-4deg); } 50% { transform: translateY(-12px) rotate(4deg); } }
@@ -1566,13 +1568,18 @@ $("poolElimClose").addEventListener("click", () => $("poolElimModal").classList.
 $("poolElimOk").addEventListener("click", () => $("poolElimModal").classList.remove("on"));
 $("poolWinClose").addEventListener("click", () => $("poolWinModal").classList.remove("on"));
 $("poolWinOk").addEventListener("click", () => $("poolWinModal").classList.remove("on"));
-// iPhone-style team scroll wheel: one row per team, 56px each, scroll-snapped to the
+// iPhone-style team scroll wheel: one row per team, 66px each, scroll-snapped to the
 // center highlight band. Scrolling just "dials" a team (_poolDialedTeam) — nothing is
 // submitted until Lock In is tapped, per the explicit two-step flow the user asked for.
-const WHEEL_ROW_H = 56;
+const WHEEL_ROW_H = 66;
 let _poolWheelTeams = [], _poolDialedTeam = null, _wheelScrollT;
 function renderTeamWheel(games, usedTeams, currentTeam) {
-  const teams = [...new Set(games.flatMap((g) => [g.away, g.home]))].sort();
+  // Sort by mascot name ("Chiefs"), not abbreviation ("KC") — abbreviation-order technically
+  // is alphabetical, but doesn't match how anyone actually scans for a team by name.
+  const nameByAbbr = {};
+  for (const g of games) { nameByAbbr[g.away] = g.awayName || g.away; nameByAbbr[g.home] = g.homeName || g.home; }
+  const teams = [...new Set(games.flatMap((g) => [g.away, g.home]))]
+    .sort((a, b) => nameByAbbr[a].localeCompare(nameByAbbr[b]));
   _poolWheelTeams = teams;
   const rows = teams.map((t, i) => {
     const used = usedTeams.includes(t);
@@ -1590,7 +1597,7 @@ function renderTeamWheel(games, usedTeams, currentTeam) {
       : `<span class="twOpp" style="font-size:11px">${esc(oppLabel)}</span>`;
     return `<div class="teamWheelRow ${(used || started) ? "used" : ""}" data-wt="${esc(t)}" data-wi="${i}">
       ${logo ? `<img class="twLogo" src="${esc(logo)}" alt="" onerror="this.style.visibility='hidden'" />` : ""}
-      <span class="twTeam">${esc(t)}</span>
+      <div class="twTeamCol"><span class="twTeam">${esc(t)}</span><span class="twName">${esc(nameByAbbr[t])}</span></div>
       <span class="twMeta">${meta}</span>
     </div>`;
   }).join("");

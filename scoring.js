@@ -705,6 +705,9 @@ async function survivorWeek(sport = "NFL", override = null) {
     games.push({
       id: ev.id, label: ev.shortName || `${awayAbbr} @ ${homeAbbr}`,
       away: awayAbbr, home: homeAbbr,
+      // mascot name (e.g. "Chiefs"), not the abbreviation — lets the pick wheel alphabetize
+      // and be navigated by the name people actually think in, not by "KC"/"SEA" codes
+      awayName: away?.team?.shortDisplayName || awayAbbr, homeName: home?.team?.shortDisplayName || homeAbbr,
       awayLogo: away?.team?.logo || null, homeLogo: home?.team?.logo || null,
       awayWinPct, homeWinPct,
       kickoff: new Date(ev.date).getTime(),
