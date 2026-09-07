@@ -254,6 +254,13 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
 .teamWheelRow.used .twTeam { text-decoration: line-through; color: var(--dim); }
 .teamWheelRow .twUsedTag { font-size: 11px; font-weight: 800; color: var(--red); letter-spacing: .3px; }
 .poolWheelWarn { color: var(--red); font-size: 13px; text-align: center; margin-top: 8px; font-weight: 700; }
+.poolTrophy { font-size: 88px; line-height: 1; margin: 6px 0 4px; animation: poolTrophyBounce 1.1s ease-in-out infinite; filter: drop-shadow(0 0 22px rgba(255,200,60,.55)); }
+@keyframes poolTrophyBounce { 0%, 100% { transform: translateY(0) rotate(-4deg); } 50% { transform: translateY(-12px) rotate(4deg); } }
+.poolChampTitle { font-family: var(--display); font-size: 26px; font-weight: 800; letter-spacing: 1px; margin: 4px 0; background: linear-gradient(135deg, #FFE08A, #FFC02E 55%, #FF9F1C); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.poolConfettiWrap { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 1; }
+.poolConfettiWrap span { position: absolute; top: -24px; font-size: 18px; animation: poolConfettiFall 2.4s linear infinite; }
+@keyframes poolConfettiFall { 0% { transform: translateY(-24px) rotate(0deg); opacity: 1; } 100% { transform: translateY(420px) rotate(360deg); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .poolTrophy, .poolConfettiWrap span { animation: none; } }
 /* bottom nav */
 .bnav { position: fixed; left: 0; right: 0; bottom: 0; margin: 0 auto; width: min(540px, 100%); background: var(--panel); border-top: 2px solid var(--raised); display: flex; z-index: 20; padding-bottom: env(safe-area-inset-bottom); }
 /* always-on trollbox — sits just above the bottom nav, collapsible */
@@ -910,6 +917,37 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
   </div>
 </div>
 
+<!-- suicide pool: eliminated / handshake reminder -->
+<div class="modal" id="poolElimModal">
+  <div class="sheet" style="text-align:center;position:relative">
+    <button class="cardX" id="poolElimClose" style="position:absolute;top:10px;right:10px">✕</button>
+    <div style="font-size:52px;margin-bottom:6px">💀</div>
+    <h2 style="margin-bottom:2px">You're eliminated</h2>
+    <p class="note" id="poolElimWhich" style="margin-top:0"></p>
+    <div id="poolElimHandshake" style="display:none">
+      <div class="hsBox" style="text-align:left;margin-top:14px">
+        <div class="hsTitle">🤝 Code of Honor</div>
+        <p style="font-size:14px;line-height:1.5;margin:0">You shook on it: <strong id="poolElimStake"></strong></p>
+        <p class="note" style="margin-top:8px;text-align:left">Time to make good on it — that was the deal.</p>
+      </div>
+    </div>
+    <button class="big gold" id="poolElimOk" style="margin-top:16px">Got it</button>
+  </div>
+</div>
+
+<!-- suicide pool: winner celebration -->
+<div class="modal" id="poolWinModal">
+  <div class="sheet" style="text-align:center;position:relative;overflow:hidden">
+    <div class="poolConfettiWrap" id="poolConfettiWrap"></div>
+    <button class="cardX" id="poolWinClose" style="position:absolute;top:10px;right:10px;z-index:2">✕</button>
+    <div class="poolTrophy">🏆</div>
+    <h2 class="poolChampTitle">POOL CHAMPION</h2>
+    <p id="poolWinNames" style="font-size:16px;font-weight:800;margin:2px 0 6px"></p>
+    <p class="note" id="poolWinSub" style="margin-top:0"></p>
+    <button class="big gold" id="poolWinOk" style="margin-top:16px;position:relative;z-index:2">Nice! 🎉</button>
+  </div>
+</div>
+
 <!-- invite-friends modal -->
 <div class="modal" id="invModal">
   <div class="sheet">
@@ -1478,6 +1516,56 @@ function resultLabel(r) {
   return r === "win" ? "Won! ✅ You're still alive" : r === "loss" ? "Lost — you're out" :
     r === "push" ? "Tie/push — you're still alive" : r === "missed" ? "Missed the deadline — eliminated" : "⏳ Waiting on this game…";
 }
+// Persistent (not just per-session) "have we already shown this" flags for the elimination
+// and winner ceremonies — keyed by pool code so each fires exactly once ever, whether you're
+// watching live when it happens or come back later to find your pool already resolved.
+function _poolCeremonySeen(code, key) {
+  const seen = JSON.parse(localStorage.getItem("squp_pool_seen") || "{}");
+  return !!seen[`${code}:${key}`];
+}
+function _markPoolCeremonySeen(code, key) {
+  const seen = JSON.parse(localStorage.getItem("squp_pool_seen") || "{}");
+  seen[`${code}:${key}`] = true;
+  localStorage.setItem("squp_pool_seen", JSON.stringify(seen));
+}
+function _checkPoolCeremonies(st, mine) {
+  // A full-wipeout week makes everyone who "lost" that week a co-champion at the same
+  // time (see server.js tickPool) — the win celebration should win that framing fight,
+  // not stack a "you're eliminated 💀" modal right behind/under the trophy one.
+  const iWon = st.status === "complete" && st.winners?.includes(me.id);
+  if (mine && !mine.alive && mine.eliminatedWeek && !iWon) {
+    const key = `elim:${mine.eliminatedWeek}`;
+    if (!_poolCeremonySeen(st.code, key)) { _markPoolCeremonySeen(st.code, key); _showPoolElimModal(st, mine); }
+  }
+  if (iWon) {
+    if (!_poolCeremonySeen(st.code, "win")) { _markPoolCeremonySeen(st.code, "win"); _showPoolWinModal(st); }
+  }
+}
+function _showPoolElimModal(st, mine) {
+  $("poolElimWhich").textContent = `${st.name} — Week ${mine.eliminatedWeek}`;
+  if (st.handshake) {
+    $("poolElimHandshake").style.display = "block";
+    $("poolElimStake").textContent = st.handshake.stake;
+  } else {
+    $("poolElimHandshake").style.display = "none";
+  }
+  $("poolElimModal").classList.add("on");
+}
+function _showPoolWinModal(st) {
+  const names = st.winners.map((id) => st.entries.find((e) => e.userId === id)?.name || "?");
+  $("poolWinNames").textContent = names.length > 1 ? `Co-champions: ${names.join(", ")}` : names[0];
+  $("poolWinSub").textContent = `${st.name} — you outlasted everyone!`;
+  const emojis = ["🎉", "✨", "🎊", "🏆", "⭐"];
+  $("poolConfettiWrap").innerHTML = Array.from({ length: 22 }, () => {
+    const left = Math.random() * 100, delay = (Math.random() * 2).toFixed(2);
+    return `<span style="left:${left}%;animation-delay:${delay}s">${emojis[Math.floor(Math.random() * emojis.length)]}</span>`;
+  }).join("");
+  $("poolWinModal").classList.add("on");
+}
+$("poolElimClose").addEventListener("click", () => $("poolElimModal").classList.remove("on"));
+$("poolElimOk").addEventListener("click", () => $("poolElimModal").classList.remove("on"));
+$("poolWinClose").addEventListener("click", () => $("poolWinModal").classList.remove("on"));
+$("poolWinOk").addEventListener("click", () => $("poolWinModal").classList.remove("on"));
 // iPhone-style team scroll wheel: one row per team, 56px each, scroll-snapped to the
 // center highlight band. Scrolling just "dials" a team (_poolDialedTeam) — nothing is
 // submitted until Lock In is tapped, per the explicit two-step flow the user asked for.
@@ -1550,6 +1638,7 @@ function renderPoolDetail() {
 
   const mine = st.entries.find((e) => e.userId === me.id);
   const alive = st.entries.filter((e) => e.alive);
+  _checkPoolCeremonies(st, mine);
 
   // status strip — the "here's where I stand" summary the user wanted up top, not buried
   const myPill = st.status === "complete" ? `<span class="poolPill win">🏆 Pool complete</span>`
