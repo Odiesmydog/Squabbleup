@@ -80,6 +80,8 @@ async function initDb() {
     ALTER TABLE users ADD COLUMN IF NOT EXISTS premium BOOLEAN NOT NULL DEFAULT false;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS squabbles_used INT NOT NULL DEFAULT 0;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS recovery_email TEXT;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_users_recovery_email ON users (LOWER(recovery_email)) WHERE recovery_email IS NOT NULL;
     CREATE TABLE IF NOT EXISTS invites (
       id BIGSERIAL PRIMARY KEY,
       draft_code TEXT NOT NULL, to_user UUID NOT NULL,
@@ -148,11 +150,13 @@ async function verifyPassword(pw, stored) {
   const testBuf = await scryptAsync(pw, salt, 64);
   return hashBuf.length === testBuf.length && crypto.timingSafeEqual(hashBuf, testBuf);
 }
-// Never let password_hash leave the server — every user row sent to a client goes through this.
+// Never let password_hash or the raw recovery_email leave the server — it exists only as a
+// lookup key for /api/account/recover, not for display or anything else — every user row
+// sent to a client goes through this.
 function publicUser(u) {
   if (!u) return u;
-  const { password_hash, ...rest } = u;
-  return { ...rest, hasPassword: !!password_hash };
+  const { password_hash, recovery_email, ...rest } = u;
+  return { ...rest, hasPassword: !!password_hash, hasRecoveryEmail: !!recovery_email };
 }
 
 // ---------------- snake helpers ----------------
@@ -485,37 +489,55 @@ app.post("/api/user/friendcode", ah(async (req, res) => {
   res.json({ friendcode: nc });
 }));
 
-// Set/change an optional recovery password on an already-logged-in account. The app stays
-// device-identity by default (no password required to play) — this just gives people a way
-// back into their account if they lose the device, using the friend code they already have
-// as the recovery ID.
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Set/change an optional recovery password (and, optionally, a recovery email) on an
+// already-logged-in account. The app stays device-identity by default (no password required
+// to play) — this just gives people a way back into their account if they lose the device.
+// The email here is used for nothing else — no notifications, no marketing — it's purely an
+// alternate lookup key for /api/account/recover, since a random friend code is a lot harder
+// for someone to remember from a wiped phone than their own email address.
 app.post("/api/account/set-password", ah(async (req, res) => {
-  const { id, password } = req.body;
+  const { id, password, email } = req.body;
   if (!id) return res.status(400).json({ error: "Not logged in" });
   const pw = String(password || "");
   if (pw.length < 4) return res.status(400).json({ error: "Password must be at least 4 characters" });
   const u = (await pool.query("SELECT id FROM users WHERE id=$1", [id])).rows[0];
   if (!u) return res.status(404).json({ error: "Account not found" });
+  let recoveryEmail = undefined; // undefined = leave column untouched
+  if (email != null && String(email).trim() !== "") {
+    recoveryEmail = String(email).trim().toLowerCase();
+    if (!EMAIL_RE.test(recoveryEmail)) return res.status(400).json({ error: "That doesn't look like a valid email" });
+    const taken = (await pool.query("SELECT id FROM users WHERE LOWER(recovery_email)=$1 AND id!=$2", [recoveryEmail, id])).rows[0];
+    if (taken) return res.status(409).json({ error: "That email is already used for recovery on another account" });
+  }
   const hash = await hashPassword(pw);
-  await pool.query("UPDATE users SET password_hash=$1 WHERE id=$2", [hash, id]);
+  if (recoveryEmail !== undefined) {
+    await pool.query("UPDATE users SET password_hash=$1, recovery_email=$2 WHERE id=$3", [hash, recoveryEmail, id]);
+  } else {
+    await pool.query("UPDATE users SET password_hash=$1 WHERE id=$2", [hash, id]);
+  }
   res.json({ ok: true });
 }));
 
-// Recover an account on a new/cleared device with friend code + recovery password.
-// Per-code attempt limiter (separate from the global per-IP one) since this is the one
+// Recover an account on a new/cleared device with (friend code OR recovery email) + password.
+// Per-identifier attempt limiter (separate from the global per-IP one) since this is the one
 // endpoint where someone could try to guess their way into an account that isn't theirs.
-const _recoverAttempts = new Map(); // friendcode -> { n, t }
+const _recoverAttempts = new Map(); // identifier -> { n, t }
 app.post("/api/account/recover", ah(async (req, res) => {
-  const fc = String(req.body.friendcode || "").toUpperCase().trim();
+  const raw = String(req.body.identifier || req.body.friendcode || "").trim();
   const password = String(req.body.password || "");
   const now = Date.now();
-  let a = _recoverAttempts.get(fc);
-  if (!a || now - a.t > 15 * 60 * 1000) { a = { n: 0, t: now }; _recoverAttempts.set(fc, a); }
+  let a = _recoverAttempts.get(raw.toLowerCase());
+  if (!a || now - a.t > 15 * 60 * 1000) { a = { n: 0, t: now }; _recoverAttempts.set(raw.toLowerCase(), a); }
   if (a.n >= 8) return res.status(429).json({ error: "Too many attempts — try again in 15 minutes" });
   a.n++;
-  const generic = { error: "Friend code or password incorrect" };
-  if (!fc || !password) return res.status(400).json(generic);
-  const u = (await pool.query("SELECT * FROM users WHERE friendcode=$1", [fc])).rows[0];
+  const generic = { error: "Friend code, email, or password incorrect" };
+  if (!raw || !password) return res.status(400).json(generic);
+  const u = (await pool.query(
+    "SELECT * FROM users WHERE friendcode=$1 OR LOWER(recovery_email)=$2",
+    [raw.toUpperCase(), raw.toLowerCase()]
+  )).rows[0];
   if (!u || !u.password_hash || !(await verifyPassword(password, u.password_hash))) {
     return res.status(401).json(generic);
   }
