@@ -573,10 +573,16 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
     <button class="big flat" id="enablePushBtn" style="margin-bottom:14px">🔔 Enable pick notifications</button>
     <div class="stepLbl">App</div>
     <button class="big flat" id="installAppBtn" style="margin-bottom:14px">📲 Install app</button>
+    <div class="stepLbl">Account recovery</div>
+    <div class="bCol" style="cursor:default">
+      <div class="bPick"><span id="pwStatusLine">Set a password so you can get back into this exact account — same name, friends, drafts and pools — using your friend code if you lose this device or clear your browser.</span></div>
+    </div>
+    <input class="field" id="setPwIn" type="password" maxlength="40" placeholder="Choose a recovery password" />
+    <button class="big flat" id="setPwBtn" style="margin-bottom:14px">🔐 Set recovery password</button>
     <div class="stepLbl">How your account works</div>
     <div class="bCol" style="cursor:default">
-      <div class="bPick"><span>No password, no email. This device is your login — your profile, drafts, friends and chats are saved on SquabbleUP's servers under an ID this browser remembers.</span></div>
-      <div class="bPick"><span class="e">⚠️ Clearing browser data or switching devices starts a fresh player, so don't clear it mid-squabble. Pass &amp; play drafts live only on this device.</span></div>
+      <div class="bPick"><span>No email needed. This device is your login by default — your profile, drafts, friends and chats are saved on SquabbleUP's servers under an ID this browser remembers.</span></div>
+      <div class="bPick"><span class="e">⚠️ Clearing browser data or switching devices starts a fresh player unless you've set a recovery password above — then use "Recover it" on the welcome screen with your friend code + password. Pass &amp; play drafts live only on this device either way.</span></div>
     </div>
     <div class="stepLbl" style="color:var(--red)">Danger zone</div>
     <button class="big flat" id="deleteAccountBtn" style="color:var(--red);margin-bottom:14px">🗑 Delete my account &amp; data</button>
@@ -894,6 +900,21 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
     <div class="lbl">…or paste an image link</div>
     <input class="field" id="profImg" placeholder="https://…" />
     <button class="big" id="profSave">Let's go</button>
+    <div class="note" id="recoverLink" style="margin-top:14px;text-align:center;text-decoration:underline;cursor:pointer;display:none">Already have an account? Recover it</div>
+  </div>
+</div>
+
+<!-- account recovery modal -->
+<div class="modal" id="recoverModal">
+  <div class="sheet">
+    <h2>Recover your account</h2>
+    <p class="note" style="margin:-4px 0 10px">Enter your friend code and the recovery password you set for it.</p>
+    <div class="lbl">Friend code</div>
+    <input class="field" id="recFc" maxlength="12" placeholder="e.g. FZLZAW" style="text-transform:uppercase" />
+    <div class="lbl">Recovery password</div>
+    <input class="field" id="recPw" type="password" placeholder="Password" />
+    <button class="big" id="recoverBtn">Recover account</button>
+    <div class="note" id="recoverCancel" style="margin-top:12px;text-align:center;text-decoration:underline;cursor:pointer">Cancel</div>
   </div>
 </div>
 
@@ -1069,6 +1090,7 @@ function openProfile(first) {
   $("profImg").value = me?.img || "";
   const cur = me?.av || "🙂";
   $("avGrid").innerHTML = EMOJIS.map((e) => `<button class="avPick ${cur === e ? "sel" : ""}" data-av="${e}">${e}</button>`).join("");
+  $("recoverLink").style.display = first ? "block" : "none";
   $("profModal").classList.add("on");
 }
 let pickedAv = null;
@@ -1096,6 +1118,30 @@ $("profSave").addEventListener("click", async () => {
   else loadHome();
   // ask for push permission after first-time setup
   setTimeout(() => requestPushPermission && requestPushPermission(), 1500);
+});
+$("recoverLink").addEventListener("click", () => {
+  $("profModal").classList.remove("on");
+  $("recFc").value = ""; $("recPw").value = "";
+  $("recoverModal").classList.add("on");
+});
+$("recoverCancel").addEventListener("click", () => {
+  $("recoverModal").classList.remove("on");
+  $("profModal").classList.add("on");
+});
+$("recoverBtn").addEventListener("click", async () => {
+  const friendcode = $("recFc").value.trim().toUpperCase();
+  const password = $("recPw").value;
+  if (!friendcode || !password) { toast("Enter your friend code and password"); return; }
+  try {
+    const u = await api("/api/account/recover", { friendcode, password });
+    me = u; _saveMe();
+    $("recoverModal").classList.remove("on");
+    renderTop();
+    if (pendingJoin) { const c = pendingJoin; pendingJoin = null; joinByCode(c); }
+    else if (pendingJoinPool) { const c = pendingJoinPool; pendingJoinPool = null; joinPoolByCode(c); }
+    else loadHome();
+    toast(`Welcome back, ${u.name}!`);
+  } catch (e) { $("recPw").value = ""; }
 });
 $("meChip").addEventListener("click", () => openProfile(false));
 function renderTop() {
@@ -1350,8 +1396,22 @@ function renderProfileTab() {
   $("friendsList").innerHTML = homeData.friends.length
     ? homeData.friends.map((f) => `<div class="fRow">${avHtml(f)}<span class="fn">${esc(f.name)}</span><span class="tag">${f.friendcode}</span></div>`).join("")
     : `<div class="emptyBox"><div class="e">👥</div>No friends yet.<br />Swap codes and build the crew.</div>`;
+  $("pwStatusLine").textContent = me.hasPassword
+    ? "✅ Recovery password is set — use \"Recover it\" on the welcome screen with your friend code to get back in on any device."
+    : "Set a password so you can get back into this exact account — same name, friends, drafts and pools — using your friend code if you lose this device or clear your browser.";
+  $("setPwIn").value = "";
+  $("setPwBtn").textContent = me.hasPassword ? "🔐 Change recovery password" : "🔐 Set recovery password";
 }
 $("editProfile").addEventListener("click", () => openProfile(false));
+$("setPwBtn").addEventListener("click", async () => {
+  const pw = $("setPwIn").value;
+  if (pw.length < 4) { toast("Password must be at least 4 characters"); return; }
+  await api("/api/account/set-password", { id: me.id, password: pw });
+  me.hasPassword = true; _saveMe();
+  $("setPwIn").value = "";
+  renderProfileTab();
+  toast("Recovery password set");
+});
 
 // ── friend code inline edit ──────────────────────────────────────────────────
 function _showFcEdit() {

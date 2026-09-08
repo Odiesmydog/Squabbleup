@@ -4,6 +4,7 @@ const express = require("express");
 const path = require("path");
 const http = require("http");
 const crypto = require("crypto");
+const { promisify } = require("util");
 const compression = require("compression");
 const { WebSocketServer } = require("ws");
 const { Pool } = require("pg");
@@ -78,6 +79,7 @@ async function initDb() {
     ALTER TABLE player_scores ADD COLUMN IF NOT EXISTS first_scored_at TIMESTAMPTZ DEFAULT now();
     ALTER TABLE users ADD COLUMN IF NOT EXISTS premium BOOLEAN NOT NULL DEFAULT false;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS squabbles_used INT NOT NULL DEFAULT 0;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT;
     CREATE TABLE IF NOT EXISTS invites (
       id BIGSERIAL PRIMARY KEY,
       draft_code TEXT NOT NULL, to_user UUID NOT NULL,
@@ -130,6 +132,28 @@ async function initDb() {
 }
 
 const code6 = () => crypto.randomBytes(4).toString("base64").replace(/[^A-Z0-9]/gi, "").slice(0, 6).toUpperCase().padEnd(6, "X");
+
+// ---------------- recovery password (optional — device identity is still the default) ----------------
+const scryptAsync = promisify(crypto.scrypt);
+async function hashPassword(pw) {
+  const salt = crypto.randomBytes(16).toString("hex");
+  const hash = (await scryptAsync(pw, salt, 64)).toString("hex");
+  return `${salt}:${hash}`;
+}
+async function verifyPassword(pw, stored) {
+  if (!stored) return false;
+  const [salt, hash] = stored.split(":");
+  if (!salt || !hash) return false;
+  const hashBuf = Buffer.from(hash, "hex");
+  const testBuf = await scryptAsync(pw, salt, 64);
+  return hashBuf.length === testBuf.length && crypto.timingSafeEqual(hashBuf, testBuf);
+}
+// Never let password_hash leave the server — every user row sent to a client goes through this.
+function publicUser(u) {
+  if (!u) return u;
+  const { password_hash, ...rest } = u;
+  return { ...rest, hasPassword: !!password_hash };
+}
 
 // ---------------- snake helpers ----------------
 const pickerIndex = (s) => {
@@ -389,14 +413,14 @@ app.post("/api/register", ah(async (req, res) => {
     const r = await pool.query("UPDATE users SET name=$2, av=$3, img=$4 WHERE id=$1 RETURNING *", [id, name, av, img]);
     if (r.rows[0]) {
       syncNameToPools(id, name, av, img).catch((e) => console.error("syncNameToPools", e.message));
-      return res.json(r.rows[0]);
+      return res.json(publicUser(r.rows[0]));
     }
   }
   id = crypto.randomUUID();
   let fc;
   for (;;) { fc = code6(); const c = await pool.query("SELECT 1 FROM users WHERE friendcode=$1", [fc]); if (!c.rows.length) break; }
   const r = await pool.query("INSERT INTO users (id, name, av, img, friendcode) VALUES ($1,$2,$3,$4,$5) RETURNING *", [id, name, av, img, fc]);
-  res.json(r.rows[0]);
+  res.json(publicUser(r.rows[0]));
 }));
 
 // me: profile + friends + invites + my drafts (parallelized)
@@ -433,7 +457,7 @@ app.get("/api/me/:id", ah(async (req, res) => {
       winners: st.winners,
     };
   });
-  res.json({ user: u, friends: friendRes.rows, invites: inviteRes.rows, drafts, pools, poolInvites: poolInviteRes.rows });
+  res.json({ user: publicUser(u), friends: friendRes.rows, invites: inviteRes.rows, drafts, pools, poolInvites: poolInviteRes.rows });
 }));
 
 // add friend by friendcode (mutual)
@@ -460,6 +484,45 @@ app.post("/api/user/friendcode", ah(async (req, res) => {
   await pool.query("UPDATE users SET friendcode=$1 WHERE id=$2", [nc, id]);
   res.json({ friendcode: nc });
 }));
+
+// Set/change an optional recovery password on an already-logged-in account. The app stays
+// device-identity by default (no password required to play) — this just gives people a way
+// back into their account if they lose the device, using the friend code they already have
+// as the recovery ID.
+app.post("/api/account/set-password", ah(async (req, res) => {
+  const { id, password } = req.body;
+  if (!id) return res.status(400).json({ error: "Not logged in" });
+  const pw = String(password || "");
+  if (pw.length < 4) return res.status(400).json({ error: "Password must be at least 4 characters" });
+  const u = (await pool.query("SELECT id FROM users WHERE id=$1", [id])).rows[0];
+  if (!u) return res.status(404).json({ error: "Account not found" });
+  const hash = await hashPassword(pw);
+  await pool.query("UPDATE users SET password_hash=$1 WHERE id=$2", [hash, id]);
+  res.json({ ok: true });
+}));
+
+// Recover an account on a new/cleared device with friend code + recovery password.
+// Per-code attempt limiter (separate from the global per-IP one) since this is the one
+// endpoint where someone could try to guess their way into an account that isn't theirs.
+const _recoverAttempts = new Map(); // friendcode -> { n, t }
+app.post("/api/account/recover", ah(async (req, res) => {
+  const fc = String(req.body.friendcode || "").toUpperCase().trim();
+  const password = String(req.body.password || "");
+  const now = Date.now();
+  let a = _recoverAttempts.get(fc);
+  if (!a || now - a.t > 15 * 60 * 1000) { a = { n: 0, t: now }; _recoverAttempts.set(fc, a); }
+  if (a.n >= 8) return res.status(429).json({ error: "Too many attempts — try again in 15 minutes" });
+  a.n++;
+  const generic = { error: "Friend code or password incorrect" };
+  if (!fc || !password) return res.status(400).json(generic);
+  const u = (await pool.query("SELECT * FROM users WHERE friendcode=$1", [fc])).rows[0];
+  if (!u || !u.password_hash || !(await verifyPassword(password, u.password_hash))) {
+    return res.status(401).json(generic);
+  }
+  a.n = 0;
+  res.json(publicUser(u));
+}));
+setInterval(() => { const now = Date.now(); for (const [k, e] of _recoverAttempts) if (now - e.t > 30 * 60 * 1000) _recoverAttempts.delete(k); }, 5 * 60 * 1000);
 
 // Account deletion — required by App Store guideline 5.1.1(v) for apps with accounts.
 // Removes the user and their personal data; their name/avatar stays on finished draft
