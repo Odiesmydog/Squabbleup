@@ -387,7 +387,10 @@ app.post("/api/register", ah(async (req, res) => {
   img = String(img || "").slice(0, 300);
   if (id) {
     const r = await pool.query("UPDATE users SET name=$2, av=$3, img=$4 WHERE id=$1 RETURNING *", [id, name, av, img]);
-    if (r.rows[0]) return res.json(r.rows[0]);
+    if (r.rows[0]) {
+      syncNameToPools(id, name, av, img).catch((e) => console.error("syncNameToPools", e.message));
+      return res.json(r.rows[0]);
+    }
   }
   id = crypto.randomUUID();
   let fc;
@@ -1025,6 +1028,25 @@ app.delete("/api/admin/draft/:code", ah(async (req, res) => {
 // ---------------- survivor pools ----------------
 // Redacts other entrants' current-week pick until the week locks — everyone sees
 // identical, fair data at the same moment (same ethos as the shared-scoring design).
+// Pool entries snapshot name/av/img at join time (same pattern as draft seats), which is
+// fine for a short-lived draft but goes stale across a multi-week pool if someone edits
+// their profile mid-run. Keep every non-complete pool's roster in sync on profile update.
+async function syncNameToPools(userId, name, av, img) {
+  const rows = (await pool.query(
+    `SELECT code, state FROM pools WHERE $1 = ANY(participants) AND (state->>'status') != 'complete'`,
+    [userId]
+  )).rows;
+  for (const { code, state } of rows) {
+    let changed = false;
+    for (const e of state.entries || []) {
+      if (e.userId === userId && (e.name !== name || e.av !== av || e.img !== img)) {
+        e.name = name; e.av = av; e.img = img; changed = true;
+      }
+    }
+    if (changed) await pool.query("UPDATE pools SET state=$1, updated=now() WHERE code=$2", [state, code]);
+  }
+}
+
 function poolSafeState(st, viewerId) {
   const revealed = st.week.locked;
   return {
