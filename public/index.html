@@ -1023,6 +1023,37 @@ const SPORTNAMES = { ALL: "All-sports", NFL: "NFL", NBA: "NBA", MLB: "MLB", NHL:
 let me = JSON.parse(localStorage.getItem("squp_me") || "null");
 let pendingJoin = new URLSearchParams(location.search).get("join");
 let pendingJoinPool = new URLSearchParams(location.search).get("joinpool");
+function _getCookie(name) {
+  const m = document.cookie.match(new RegExp("(?:^|; )" + name + "=([^;]*)"));
+  return m ? decodeURIComponent(m[1]) : null;
+}
+// Persist identity two ways, not just localStorage. iOS Safari famously isolates
+// localStorage between a regular browser tab and the same site launched standalone via
+// "Add to Home Screen" — so someone who registers in Safari, then adds the app to their
+// home screen, opens a *second*, empty identity store and gets walked through "create a
+// player" again, ending up with two separate accounts. Cookies are set at the origin level
+// and survive that boundary far more reliably, so this is the recovery path on next boot.
+function _saveMe() {
+  localStorage.setItem("squp_me", JSON.stringify(me));
+  document.cookie = `squp_uid=${me.id}; path=/; max-age=${60 * 60 * 24 * 730}; SameSite=Lax`;
+}
+async function _recoverIdentityFromCookie() {
+  const uid = _getCookie("squp_uid");
+  if (!uid) return false;
+  try {
+    // Raw fetch, not api() — this check runs silently on every fresh-localStorage boot,
+    // including genuinely new visitors and stale/deleted-account cookies, and api() always
+    // toasts on a non-OK response. A "not found" error is the wrong first thing to show
+    // someone who hasn't even set up a profile yet.
+    const r = await fetch("/api/me/" + uid);
+    if (!r.ok) return false;
+    const data = await r.json();
+    if (!data?.user) return false;
+    me = data.user; _saveMe();
+    homeData = data; localStorage.setItem("squp_homeData", JSON.stringify(homeData));
+    return true;
+  } catch { return false; }
+}
 
 const pickerIndex = (s) => {
   const n = s.seats.length, p = s.picks.length;
@@ -1057,7 +1088,7 @@ $("profSave").addEventListener("click", async () => {
   const av = pickedAv || me?.av || "🙂";
   const img = $("profImg").value.trim();
   const u = await api("/api/register", { id: me?.id, name, av, img });
-  me = u; localStorage.setItem("squp_me", JSON.stringify(me));
+  me = u; _saveMe();
   $("profModal").classList.remove("on");
   renderTop();
   if (pendingJoin) { const c = pendingJoin; pendingJoin = null; joinByCode(c); }
@@ -1102,7 +1133,7 @@ async function gotoTab(t) {
   try {
     homeData = await api("/api/me/" + me.id);
     // keep local identity in sync with server truth (name edits elsewhere, etc)
-    if (homeData?.user) { me = { ...me, ...homeData.user }; localStorage.setItem("squp_me", JSON.stringify(me)); }
+    if (homeData?.user) { me = { ...me, ...homeData.user }; _saveMe(); }
     localStorage.setItem("squp_homeData", JSON.stringify(homeData));
     renderTabs();
     if (t === "profile") renderProfileTab();
@@ -1341,7 +1372,7 @@ async function _doFcRecode() {
   try {
     const { friendcode } = await api("/api/user/friendcode", { id: me.id, newCode: nc });
     me.friendcode = friendcode;
-    localStorage.setItem("squp_me", JSON.stringify(me));
+    _saveMe();
     $("myCode").textContent = friendcode;
     _hideFcEdit();
     toast(`Friend code updated to ${friendcode}`);
@@ -1881,6 +1912,7 @@ $("deleteAccountBtn").addEventListener("click", async () => {
     localStorage.removeItem("squp_me");
     localStorage.removeItem("squp_local");
     localStorage.removeItem("squp_homeData");
+    document.cookie = "squp_uid=; path=/; max-age=0";
     toast("Account deleted");
     setTimeout(() => location.reload(), 800);
   } catch {}
@@ -3268,10 +3300,17 @@ document.addEventListener("visibilitychange", () => {
 // needs to (and must not) tell the server to turn it off.
 
 renderTop();
-if (!me) openProfile(true);
-else if (pendingJoin) { const c = pendingJoin; pendingJoin = null; joinByCode(c); }
-else if (pendingJoinPool) { const c = pendingJoinPool; pendingJoinPool = null; joinPoolByCode(c); }
-else loadHome();
+(async () => {
+  // No local identity (fresh localStorage) doesn't necessarily mean a new visitor — check
+  // the cookie-based fallback before showing "set up your player" and risking a duplicate
+  // account for someone who already registered in a different storage context (see
+  // _recoverIdentityFromCookie's comment for why this happens).
+  if (!me) { await _recoverIdentityFromCookie(); renderTop(); }
+  if (!me) openProfile(true);
+  else if (pendingJoin) { const c = pendingJoin; pendingJoin = null; joinByCode(c); }
+  else if (pendingJoinPool) { const c = pendingJoinPool; pendingJoinPool = null; joinPoolByCode(c); }
+  else loadHome();
+})();
 
 // ================= PWA install + push notifications =================
 const _isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
