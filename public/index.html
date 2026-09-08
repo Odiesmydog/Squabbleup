@@ -698,6 +698,7 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
       <div style="margin:0 0 8px;font-family:var(--display);font-size:20px;font-weight:700;color:var(--purple);letter-spacing:.5px">🤝 HANDSHAKE MODE</div>
       <div class="hsBox">
         <div class="hsTitle" id="poolHsStakeLabel"></div>
+        <div id="poolHsPot" style="display:none;margin:2px 0 10px;font-family:var(--display);font-weight:700;color:var(--green);font-size:16px"></div>
         <div class="hsRoll" id="poolHsRoll"></div>
         <button class="hsAgreeBtn" id="poolHsAgreeBtn">🤝 Shake on it!</button>
       </div>
@@ -1564,6 +1565,13 @@ async function joinPoolByCode(code) {
   openPoolDetail(code);
 }
 
+// Only fires the pot popup for a literal $ amount in the stake ("$20 venmo to the winner")
+// — anything without a dollar sign (e.g. "loser buys pizza") has no numeric total to show.
+function parseDollarStake(stake) {
+  const m = String(stake || "").match(/\$\s*(\d+(?:\.\d{1,2})?)/);
+  return m ? parseFloat(m[1]) : null;
+}
+const fmtMoney = (n) => (n % 1 === 0 ? `$${n}` : `$${n.toFixed(2)}`);
 async function openPoolDetail(code) {
   _poolCode = code.toUpperCase();
   show("scrPoolDetail");
@@ -1782,6 +1790,14 @@ function renderPoolDetail() {
     const agreed = hs.agreed || [];
     const myAgreed = agreed.includes(me.id);
     $("poolHsStakeLabel").textContent = hs.stake;
+    const dollarAmt = parseDollarStake(hs.stake);
+    if (dollarAmt != null) {
+      const total = dollarAmt * st.entries.length;
+      $("poolHsPot").style.display = "block";
+      $("poolHsPot").textContent = `💰 Total pot: ${fmtMoney(total)} (${st.entries.length} × ${fmtMoney(dollarAmt)})`;
+    } else {
+      $("poolHsPot").style.display = "none";
+    }
     $("poolHsRoll").innerHTML = st.entries.map((e) => {
       const ok = agreed.includes(e.userId);
       return `<span class="hsp ${ok ? "ok" : "wait"}">${ok ? "🤝" : "⏳"} ${esc(e.name)}</span>`;

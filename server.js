@@ -1391,7 +1391,7 @@ app.post("/api/admin/pool/:code/simulate-week", ah(async (req, res) => {
   if (!cur) return res.status(404).json({ error: "Pool not found" });
   const live = await scoring.survivorWeek(cur.sport || "NFL", { season, week, seasonType });
   if (!live) return res.status(502).json({ error: "Couldn't fetch that week from ESPN" });
-  await tickPool(code, live);
+  await tickPool(code, live, { forceLive: true });
   const r = await pool.query("SELECT state FROM pools WHERE code=$1", [code]);
   res.json(r.rows[0]?.state || null);
 }));
@@ -1493,7 +1493,7 @@ async function processSurvivorPools() {
   } catch (e) { console.error("processSurvivorPools", e.message); }
 }
 
-async function tickPool(code, live) {
+async function tickPool(code, live, opts = {}) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -1533,22 +1533,37 @@ async function tickPool(code, live) {
       }
     }
 
-    // (c) results + eliminations, once this week's games are all final
-    if (st.week.locked && !st.week.eliminationsProcessed && live?.weekKey === st.week.key && live.allFinal) {
-      for (const e of st.entries) {
-        const p = e.picks.find((p) => p.weekKey === st.week.key);
-        if (!p || p.team == null) continue; // already "missed"
-        const g = live.games.find((g) => g.away === p.team || g.home === p.team);
-        const result = !g || g.winner == null ? "push" : g.winner === p.team ? "win" : "loss";
-        p.result = result;
-        e.usedTeams.push(p.team); // finalize the used-team lock only now
-        if (result === "loss") { e.alive = false; e.eliminatedWeek = st.week.key; }
+    // (c) results + eliminations, once this week's games are all final. `live` is normally
+    // "whatever ESPN's parameterless endpoint currently calls the current week" — usually
+    // this pool's own week, but it can lag behind (a slow redeploy, a brief outage around
+    // the Sun→Tue rollover). That endpoint can never look backwards, so a plain weekKey
+    // equality check would leave a lagging pool stuck here forever once ESPN moves on.
+    // Self-heal by explicitly fetching *this* week's own data when what we were handed
+    // doesn't match. `forceLive` (admin simulate-week only) skips this and trusts whatever
+    // was explicitly passed in, since that endpoint's whole point is injecting an arbitrary
+    // (often historical) result set for testing — it should never be second-guessed here.
+    if (st.week.locked && !st.week.eliminationsProcessed) {
+      let weekLive = live;
+      if (!opts.forceLive && live?.weekKey !== st.week.key) {
+        const [season, seasonType, week] = String(st.week.key).split("-").map(Number);
+        weekLive = await scoring.survivorWeek(st.sport || "NFL", { season, week, seasonType }).catch(() => null);
       }
-      st.week.eliminationsProcessed = true;
-      const stillAlive = st.entries.filter((e) => e.alive);
-      if (stillAlive.length === 0) { st.status = "complete"; st.winners = st.entries.filter((e) => e.eliminatedWeek === st.week.key).map((e) => e.userId); }
-      else if (stillAlive.length === 1 && st.entries.length > 1) { st.status = "complete"; st.winners = [stillAlive[0].userId]; }
-      changed = true;
+      if (weekLive?.allFinal) {
+        for (const e of st.entries) {
+          const p = e.picks.find((p) => p.weekKey === st.week.key);
+          if (!p || p.team == null) continue; // already "missed"
+          const g = weekLive.games.find((g) => g.away === p.team || g.home === p.team);
+          const result = !g || g.winner == null ? "push" : g.winner === p.team ? "win" : "loss";
+          p.result = result;
+          e.usedTeams.push(p.team); // finalize the used-team lock only now
+          if (result === "loss") { e.alive = false; e.eliminatedWeek = st.week.key; }
+        }
+        st.week.eliminationsProcessed = true;
+        const stillAlive = st.entries.filter((e) => e.alive);
+        if (stillAlive.length === 0) { st.status = "complete"; st.winners = st.entries.filter((e) => e.eliminatedWeek === st.week.key).map((e) => e.userId); }
+        else if (stillAlive.length === 1 && st.entries.length > 1) { st.status = "complete"; st.winners = [stillAlive[0].userId]; }
+        changed = true;
+      }
     }
 
     // (d) advance to next week once this week is fully processed and ESPN has moved on
