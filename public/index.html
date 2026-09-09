@@ -1509,6 +1509,11 @@ function fmtCountdown(ms) {
 function resultEmoji(r) {
   return r === "win" ? "✅" : r === "loss" ? "❌" : r === "push" ? "➖" : r === "missed" ? "⏰" : "⏳";
 }
+function poolTeamLogo(games, team) {
+  const g = games.find((g) => g.away === team || g.home === team);
+  if (!g) return null;
+  return g.away === team ? g.awayLogo : g.homeLogo;
+}
 
 async function loadPoolsHub() {
   try { homeData = await api("/api/me/" + me.id); } catch { return; }
@@ -1827,25 +1832,32 @@ function renderPoolDetail() {
     }
   }
 
-  // One combined, collapsible-per-player list — tap a name to expand this week's pick +
-  // full pick history together, instead of the same roster repeated across three separate
-  // sections (this week's picks / who's left / pick history).
+  // One combined, collapsible-per-player list. This week's pick (team helmet once it's
+  // visible, or just a "picked/not yet" badge while it's still hidden pre-deadline) and
+  // alive/eliminated status show right on the row — no need to open anything for that.
+  // The dropdown is only for digging into past weeks' picks.
   $("poolAliveCount").textContent = `· ${alive.length}/${st.entries.length} alive`;
   $("poolRevealHint").textContent = st.week.locked ? "" : "🔒 this week's picks revealed after the deadline";
   const isHostView = st.hostId === me.id;
   let entriesHtml = st.entries.map((e) => {
     const open = !!poolEntryOpen[e.userId];
     const p = e.currentPick;
-    const curShown = p ? `<span class="team">${esc(p.team)}</span> ${resultEmoji(p.result)}`
-      : e.hasPickedThisWeek ? `<span class="team" style="color:var(--dim)">Picked</span>`
-      : `<span style="color:var(--dim);font-size:13px">Not yet picked</span>`;
+    let pickBadge;
+    if (p) {
+      const logo = poolTeamLogo(st.week.games, p.team);
+      pickBadge = `<span style="display:inline-flex;align-items:center;gap:4px;flex-shrink:0" title="${esc(p.team)}">${logo ? `<img src="${esc(logo)}" alt="${esc(p.team)}" style="width:22px;height:22px;object-fit:contain" />` : `<span class="team" style="font-size:12px">${esc(p.team)}</span>`}<span style="font-size:14px">${resultEmoji(p.result)}</span></span>`;
+    } else if (e.hasPickedThisWeek) {
+      pickBadge = `<span class="poolPill" style="background:rgba(34,232,143,.15);color:var(--green)">✓ Picked</span>`;
+    } else {
+      pickBadge = `<span class="poolPill" style="background:rgba(255,255,255,.06);color:var(--dim)">Not picked</span>`;
+    }
     const pill = e.alive ? `<span class="poolPill alive">ALIVE</span>` : `<span class="poolPill dead">OUT — wk ${esc(String(e.eliminatedWeek || ""))}</span>`;
     // host can remove anyone but themselves, any time — mistaken invites, inactive people,
     // whatever the reason, not restricted to before the pool starts like leaving yourself is
     const removeBtn = (isHostView && e.userId !== me.id)
       ? `<button style="background:var(--raised);color:var(--dim);width:28px;height:28px;border-radius:8px;flex-shrink:0;font-size:14px;line-height:1" data-pool-remove-entry="${esc(e.userId)}" data-pool-remove-name="${esc(e.name)}" title="Remove from pool">✕</button>` : "";
-    const header = `<div class="poolEntryRow ${e.alive ? "" : "dead"}" data-pool-entry-toggle="${esc(e.userId)}" style="cursor:pointer;margin-bottom:${open ? "0" : "8px"};${open ? "border-radius:12px 12px 0 0" : ""}">
-      ${avHtml(e)}<span class="nm">${esc(e.name)}</span>${pill}${removeBtn}
+    const header = `<div class="poolEntryRow ${e.alive ? "" : "dead"}" data-pool-entry-toggle="${esc(e.userId)}" style="cursor:pointer;flex-wrap:wrap;margin-bottom:${open ? "0" : "8px"};${open ? "border-radius:12px 12px 0 0" : ""}">
+      ${avHtml(e)}<span class="nm">${esc(e.name)}</span>${pickBadge}${pill}${removeBtn}
       <span style="color:var(--dim);font-size:12px;flex-shrink:0;display:inline-block;transform:rotate(${open ? "90deg" : "0deg"});transition:transform .15s">▸</span>
     </div>`;
     let detail = "";
@@ -1854,7 +1866,6 @@ function renderPoolDetail() {
         ? e.pastPicks.map((pp) => `<span class="poolPill" style="background:var(--bg);color:var(--text);margin:0 4px 4px 0">${esc(pp.team || "—")} ${resultEmoji(pp.result)}</span>`).join("")
         : `<span style="color:var(--dim);font-size:12px">No past picks yet</span>`;
       detail = `<div style="background:var(--raised);border-radius:0 0 12px 12px;padding:12px;margin:0 0 8px;font-size:13px">
-        <div style="margin-bottom:8px"><span style="color:var(--dim)">This week:</span> ${curShown}</div>
         <div style="color:var(--dim);margin-bottom:6px">Past picks</div>
         <div>${rows}</div>
       </div>`;
