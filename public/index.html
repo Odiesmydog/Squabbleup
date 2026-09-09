@@ -719,12 +719,8 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
       </div>
     </div>
 
-    <div class="stepLbl" style="margin-top:22px">This week's picks <span id="poolRevealHint" style="color:var(--dim);font-size:10px;font-weight:600;text-transform:none;letter-spacing:0"></span></div>
-    <div id="poolRevealList"></div>
-    <div class="stepLbl" style="margin-top:20px">Who's left <span id="poolAliveCount" style="color:var(--dim);font-size:10px;font-weight:600;text-transform:none;letter-spacing:0"></span></div>
-    <div id="poolRoster"></div>
-    <div class="stepLbl" style="margin-top:20px">Pick history</div>
-    <div id="poolHistory"></div>
+    <div class="stepLbl" style="margin-top:22px">Players <span id="poolAliveCount" style="color:var(--dim);font-size:10px;font-weight:600;text-transform:none;letter-spacing:0"></span> <span id="poolRevealHint" style="color:var(--dim);font-size:10px;font-weight:600;text-transform:none;letter-spacing:0"></span></div>
+    <div id="poolEntriesList"></div>
   </section>
 
   <!-- LOBBY -->
@@ -1500,6 +1496,7 @@ async function shareText(text, url) {
 
 // ================= survivor pools =================
 let curPool = null, _poolCode = null, _poolPollT = null, _poolCountdownT = null;
+const poolEntryOpen = {}; // userId -> bool, which player cards are expanded on the pool detail screen
 
 function fmtCountdown(ms) {
   if (ms <= 0) return "0m";
@@ -1584,6 +1581,7 @@ function closePoolDetail() {
   clearInterval(_poolPollT); _poolPollT = null;
   clearInterval(_poolCountdownT); _poolCountdownT = null;
   curPool = null; _poolCode = null;
+  for (const k in poolEntryOpen) delete poolEntryOpen[k];
 }
 async function refreshPoolDetail() {
   if (!_poolCode) return;
@@ -1829,40 +1827,45 @@ function renderPoolDetail() {
     }
   }
 
-  $("poolRevealHint").textContent = st.week.locked ? "" : "🔒 revealed after the deadline";
-  $("poolRevealList").innerHTML = st.entries.map((e) => {
-    const p = e.currentPick;
-    const shown = p ? `<span class="team">${esc(p.team)}</span> ${resultEmoji(p.result)}`
-      : e.hasPickedThisWeek ? `<span class="team" style="color:var(--dim)">Picked</span>`
-      : `<span style="color:var(--dim);font-size:13px">Not yet</span>`;
-    return `<div class="poolEntryRow ${e.alive ? "" : "dead"}">${avHtml(e)}<span class="nm">${esc(e.name)}</span>${shown}</div>`;
-  }).join("") || `<div class="emptyBox"><div class="e">🏈</div>No entrants yet.</div>`;
-
-  $("poolAliveCount").textContent = `· ${alive.length}/${st.entries.length}`;
+  // One combined, collapsible-per-player list — tap a name to expand this week's pick +
+  // full pick history together, instead of the same roster repeated across three separate
+  // sections (this week's picks / who's left / pick history).
+  $("poolAliveCount").textContent = `· ${alive.length}/${st.entries.length} alive`;
+  $("poolRevealHint").textContent = st.week.locked ? "" : "🔒 this week's picks revealed after the deadline";
   const isHostView = st.hostId === me.id;
-  let rosterHtml = st.entries.map((e) => {
+  let entriesHtml = st.entries.map((e) => {
+    const open = !!poolEntryOpen[e.userId];
+    const p = e.currentPick;
+    const curShown = p ? `<span class="team">${esc(p.team)}</span> ${resultEmoji(p.result)}`
+      : e.hasPickedThisWeek ? `<span class="team" style="color:var(--dim)">Picked</span>`
+      : `<span style="color:var(--dim);font-size:13px">Not yet picked</span>`;
     const pill = e.alive ? `<span class="poolPill alive">ALIVE</span>` : `<span class="poolPill dead">OUT — wk ${esc(String(e.eliminatedWeek || ""))}</span>`;
     // host can remove anyone but themselves, any time — mistaken invites, inactive people,
     // whatever the reason, not restricted to before the pool starts like leaving yourself is
     const removeBtn = (isHostView && e.userId !== me.id)
-      ? `<button style="background:var(--raised);color:var(--dim);width:30px;height:30px;border-radius:8px;flex-shrink:0;font-size:15px;line-height:1" data-pool-remove-entry="${esc(e.userId)}" data-pool-remove-name="${esc(e.name)}" title="Remove from pool">✕</button>` : "";
-    return `<div class="poolEntryRow ${e.alive ? "" : "dead"}">${avHtml(e)}<span class="nm">${esc(e.name)}</span>${pill}${removeBtn}</div>`;
-  }).join("");
+      ? `<button style="background:var(--raised);color:var(--dim);width:28px;height:28px;border-radius:8px;flex-shrink:0;font-size:14px;line-height:1" data-pool-remove-entry="${esc(e.userId)}" data-pool-remove-name="${esc(e.name)}" title="Remove from pool">✕</button>` : "";
+    const header = `<div class="poolEntryRow ${e.alive ? "" : "dead"}" data-pool-entry-toggle="${esc(e.userId)}" style="cursor:pointer;margin-bottom:${open ? "0" : "8px"};${open ? "border-radius:12px 12px 0 0" : ""}">
+      ${avHtml(e)}<span class="nm">${esc(e.name)}</span>${pill}${removeBtn}
+      <span style="color:var(--dim);font-size:12px;flex-shrink:0;display:inline-block;transform:rotate(${open ? "90deg" : "0deg"});transition:transform .15s">▸</span>
+    </div>`;
+    let detail = "";
+    if (open) {
+      const rows = e.pastPicks && e.pastPicks.length
+        ? e.pastPicks.map((pp) => `<span class="poolPill" style="background:var(--bg);color:var(--text);margin:0 4px 4px 0">${esc(pp.team || "—")} ${resultEmoji(pp.result)}</span>`).join("")
+        : `<span style="color:var(--dim);font-size:12px">No past picks yet</span>`;
+      detail = `<div style="background:var(--raised);border-radius:0 0 12px 12px;padding:12px;margin:0 0 8px;font-size:13px">
+        <div style="margin-bottom:8px"><span style="color:var(--dim)">This week:</span> ${curShown}</div>
+        <div style="color:var(--dim);margin-bottom:6px">Past picks</div>
+        <div>${rows}</div>
+      </div>`;
+    }
+    return header + detail;
+  }).join("") || `<div class="emptyBox"><div class="e">🏈</div>No entrants yet.</div>`;
   if (st.status === "complete" && st.winners?.length) {
     const names = st.winners.map((id) => st.entries.find((e) => e.userId === id)?.name || "?").join(", ");
-    rosterHtml = `<div class="poolEntryRow" style="border:2px solid var(--purple)"><span style="font-size:20px">🏆</span><span class="nm">${st.winners.length > 1 ? "Co-winners" : "Winner"}: ${esc(names)}</span></div>` + rosterHtml;
+    entriesHtml = `<div class="poolEntryRow" style="border:2px solid var(--purple)"><span style="font-size:20px">🏆</span><span class="nm">${st.winners.length > 1 ? "Co-winners" : "Winner"}: ${esc(names)}</span></div>` + entriesHtml;
   }
-  $("poolRoster").innerHTML = rosterHtml;
-
-  $("poolHistory").innerHTML = st.entries.map((e) => {
-    const rows = e.pastPicks && e.pastPicks.length
-      ? e.pastPicks.map((p) => `<span class="poolPill" style="background:var(--raised);color:var(--text);margin-right:4px">${esc(p.team || "—")} ${resultEmoji(p.result)}</span>`).join("")
-      : `<span style="color:var(--dim);font-size:12px">No picks yet</span>`;
-    return `<div class="poolEntryRow" style="align-items:flex-start;flex-direction:column;gap:6px">
-      <div style="display:flex;align-items:center;gap:10px;width:100%">${avHtml(e)}<span class="nm">${esc(e.name)}</span></div>
-      <div>${rows}</div>
-    </div>`;
-  }).join("");
+  $("poolEntriesList").innerHTML = entriesHtml;
 }
 async function submitPoolPick(team) {
   try { curPool = await api(`/api/pool/${_poolCode}/pick`, { userId: me.id, team }); renderPoolDetail(); toast(`Locked in ${team} for this week!`); }
@@ -1976,6 +1979,13 @@ document.addEventListener("click", async (e) => {
       renderPoolDetail();
       toast(`${targetName} removed`);
     } catch {}
+    return;
+  }
+  const entryToggle = e.target.closest("[data-pool-entry-toggle]");
+  if (entryToggle) {
+    const uid = entryToggle.getAttribute("data-pool-entry-toggle");
+    poolEntryOpen[uid] = !poolEntryOpen[uid];
+    renderPoolDetail();
     return;
   }
   const p = e.target.closest("[data-pool]")?.getAttribute("data-pool");
