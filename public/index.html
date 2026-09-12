@@ -916,6 +916,35 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
   </div>
 </div>
 
+<!-- iOS add-to-home-screen instructions — a real modal that stays on screen, not a toast
+     that can vanish before someone's followed all 3 manual taps -->
+<div class="modal" id="iosInstallModal">
+  <div class="sheet" style="text-align:center">
+    <div style="font-size:40px;margin-bottom:6px">📲</div>
+    <h2>Add to Home Screen</h2>
+    <div class="bCol" style="cursor:default;text-align:left;margin-top:10px">
+      <div class="bPick"><span><strong>1.</strong> Tap the <strong>Share</strong> button (⬆️ square) at the bottom of Safari</span></div>
+      <div class="bPick"><span><strong>2.</strong> Scroll down and tap <strong>"Add to Home Screen"</strong></span></div>
+      <div class="bPick"><span><strong>3.</strong> Tap <strong>"Add"</strong> in the top right</span></div>
+    </div>
+    <button class="big" id="iosInstallOk" style="margin-top:16px">Got it</button>
+  </div>
+</div>
+
+<!-- shown instead of onboarding when a join link is opened with no local identity inside an
+     in-app browser (Instagram/Facebook/etc) — that storage is isolated from the user's real
+     browser, so proceeding straight to "create a player" here is how duplicate accounts
+     happen for people who already have one and never even used Add to Home Screen -->
+<div class="modal" id="joinInAppModal">
+  <div class="sheet" style="text-align:center">
+    <div style="font-size:40px;margin-bottom:6px">⚠️</div>
+    <h2>Open this in Safari or Chrome</h2>
+    <p class="note" style="margin:8px 0 16px">You're viewing this inside <strong id="jiaAppName"></strong>'s built-in browser. If you already have a SquabbleUP account, continuing here will create a <strong>second, separate</strong> one instead of using your real account.</p>
+    <button class="big" id="jiaCopyLink">📋 Copy link — paste into Safari or Chrome</button>
+    <div class="note" id="jiaContinueAnyway" style="margin-top:14px;text-decoration:underline;cursor:pointer">I'm new here — continue anyway</div>
+  </div>
+</div>
+
 <!-- public room peek modal -->
 <div class="modal" id="peekModal">
   <div class="sheet" style="position:relative">
@@ -1042,6 +1071,28 @@ const SPORTNAMES = { ALL: "All-sports", NFL: "NFL", NBA: "NBA", MLB: "MLB", NHL:
 let me = JSON.parse(localStorage.getItem("squp_me") || "null");
 let pendingJoin = new URLSearchParams(location.search).get("join");
 let pendingJoinPool = new URLSearchParams(location.search).get("joinpool");
+// In-app browsers (Instagram/Facebook/TikTok/etc, when a link is tapped from inside those
+// apps) run in a storage container fully isolated from the user's real Safari/Chrome — no
+// shared cookies, no shared localStorage. That's a different, unfixable-client-side version
+// of the same problem the cookie fallback below solves for Safari-tab-vs-Add-to-Home-Screen:
+// someone with an existing account looks exactly like a brand new visitor here, so falling
+// through to onboarding is how duplicate accounts happen for people who never even used
+// "Add to Home Screen" at all — they just tapped a shared invite link from inside an app.
+function _inAppBrowserName() {
+  const ua = navigator.userAgent;
+  if (/FBAN|FBAV|FB_IAB/i.test(ua)) return "Facebook";
+  if (/Instagram/i.test(ua)) return "Instagram";
+  if (/Messenger/i.test(ua)) return "Messenger";
+  if (/Twitter/i.test(ua)) return "Twitter/X";
+  if (/LinkedInApp/i.test(ua)) return "LinkedIn";
+  if (/Snapchat/i.test(ua)) return "Snapchat";
+  if (/Pinterest/i.test(ua)) return "Pinterest";
+  if (/musical_ly|TikTok/i.test(ua)) return "TikTok";
+  if (/\bLine\//i.test(ua)) return "Line";
+  if (/MicroMessenger/i.test(ua)) return "WeChat";
+  return null;
+}
+const _inAppApp = _inAppBrowserName();
 function _getCookie(name) {
   const m = document.cookie.match(new RegExp("(?:^|; )" + name + "=([^;]*)"));
   return m ? decodeURIComponent(m[1]) : null;
@@ -1125,6 +1176,14 @@ $("recoverLink").addEventListener("click", () => {
 $("recoverCancel").addEventListener("click", () => {
   $("recoverModal").classList.remove("on");
   $("profModal").classList.add("on");
+});
+$("jiaCopyLink").addEventListener("click", async () => {
+  try { await navigator.clipboard.writeText(location.href); toast("Link copied — paste it into Safari or Chrome"); }
+  catch { toast("Copy this link into Safari or Chrome: " + location.href); }
+});
+$("jiaContinueAnyway").addEventListener("click", () => {
+  $("joinInAppModal").classList.remove("on");
+  openProfile(true);
 });
 $("recoverBtn").addEventListener("click", async () => {
   const identifier = $("recFc").value.trim();
@@ -3408,7 +3467,15 @@ renderTop();
   // account for someone who already registered in a different storage context (see
   // _recoverIdentityFromCookie's comment for why this happens).
   if (!me) { await _recoverIdentityFromCookie(); renderTop(); }
-  if (!me) openProfile(true);
+  if (!me && (pendingJoin || pendingJoinPool) && _inAppApp) {
+    // Cookie/localStorage recovery above can never work here — in-app browsers use a
+    // storage container isolated from the user's real browser, so "no identity found" just
+    // means "wrong browser", not "you're new". Ask before walking them into a duplicate
+    // account instead of assuming.
+    $("jiaAppName").textContent = _inAppApp;
+    $("joinInAppModal").classList.add("on");
+  }
+  else if (!me) openProfile(true);
   else if (pendingJoin) { const c = pendingJoin; pendingJoin = null; joinByCode(c); }
   else if (pendingJoinPool) { const c = pendingJoinPool; pendingJoinPool = null; joinPoolByCode(c); }
   else loadHome();
@@ -3433,9 +3500,12 @@ window.addEventListener("beforeinstallprompt", e => {
   if (!_installDismissed()) _showInstallBanner("android");
 });
 
-// iOS: show instructions if not already installed
-if (_isIOS && !_isStandalone && !_installDismissed()) {
-  _showInstallBanner("ios");
+// Show install guidance if not already installed — in-app-browser takes priority over the
+// generic iOS message, since "tap Share then Add to Home Screen" is the wrong instructions
+// entirely when there's no real Safari/Chrome chrome around the page at all.
+if (!_isStandalone && !_installDismissed()) {
+  if (_inAppApp) _showInstallBanner("inapp");
+  else if (_isIOS) _showInstallBanner("ios");
 }
 
 // The banner is a fixed, bottom-pinned element appended straight to <body> — it has no
@@ -3455,12 +3525,16 @@ function _removeInstallBanner() {
 function _showInstallBanner(type) {
   if ($("installBanner")) return;
   const ios = type === "ios";
+  const cfg = {
+    android: { icon: "📲", title: "Add SquabbleUP to your home screen", body: "Install for instant access — works offline too", btn: "Install" },
+    ios:     { icon: "📲", title: "Add SquabbleUP to your home screen", body: "Takes 2 taps — we'll show you exactly how", btn: "Show me" },
+    inapp:   { icon: "⚠️", title: "Open in Safari or Chrome to install", body: `You're viewing this inside ${esc(_inAppApp || "an app")}'s built-in browser — home screen install only works in your real browser`, btn: "Copy Link" },
+  }[type];
   const el = document.createElement("div");
   el.className = "installBanner"; el.id = "installBanner";
-  el.innerHTML = `<div class="iBadge">📲</div>
-    <div class="iTxt"><strong>Add SquabbleUP to your home screen</strong>
-      ${ios ? "Tap <strong>Share ↑</strong> then <strong>Add to Home Screen</strong>" : "Install for instant access — works offline too"}</div>
-    ${ios ? "" : `<button class="iBtn" id="installBtn">Install</button>`}
+  el.innerHTML = `<div class="iBadge">${cfg.icon}</div>
+    <div class="iTxt"><strong>${cfg.title}</strong> ${cfg.body}</div>
+    <button class="iBtn" id="installBtn">${cfg.btn}</button>
     <button class="iClose" id="installClose">✕</button>`;
   document.body.appendChild(el);
   // If beforeinstallprompt fires (or the iOS check runs) while the draft room is already
@@ -3471,7 +3545,12 @@ function _showInstallBanner(type) {
   el._reserveHandler = reserve;
   window.addEventListener("resize", reserve);
   $("installClose").addEventListener("click", () => { _removeInstallBanner(); _dismissInstall(); });
-  if (!ios) $("installBtn").addEventListener("click", () => triggerInstall(el));
+  $("installBtn").addEventListener("click", () => triggerInstall(el));
+}
+
+async function _copyLinkForInstall() {
+  try { await navigator.clipboard.writeText(location.href); toast("Link copied — paste it into Safari or Chrome"); }
+  catch { toast("Copy this link into Safari or Chrome: " + location.href); }
 }
 
 // Shared by the auto-shown banner's button and the always-available "Install app" row in
@@ -3484,6 +3563,7 @@ function _showInstallBanner(type) {
 // which is exactly what "the install button doesn't work" looks like from the outside.
 async function triggerInstall(bannerEl) {
   if (_isStandalone) { toast("Already installed — check your home screen!"); return; }
+  if (_inAppApp) { _copyLinkForInstall(); return; }
   if (_deferredInstall) {
     try {
       await _deferredInstall.prompt();
@@ -3497,12 +3577,14 @@ async function triggerInstall(bannerEl) {
     return;
   }
   if (_isIOS) {
-    toast("Tap Share ↑ then \"Add to Home Screen\"");
+    if (bannerEl) _removeInstallBanner();
+    $("iosInstallModal").classList.add("on");
     return;
   }
   toast("Open your browser menu (⋮ or ···) and look for \"Install app\" or \"Add to Home screen\"");
 }
 $("installAppBtn").addEventListener("click", () => triggerInstall(null));
+$("iosInstallOk").addEventListener("click", () => $("iosInstallModal").classList.remove("on"));
 
 // Push notifications
 async function setupPush() {
