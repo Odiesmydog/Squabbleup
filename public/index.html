@@ -694,6 +694,14 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
       </div>
     </div>
     <div id="poolStatusStrip" class="poolStatusStrip"></div>
+    <div id="poolRecoveryNudge" style="display:none;margin-bottom:14px">
+      <div class="hsBox" style="border-color:var(--green)">
+        <div style="font-weight:700;margin-bottom:4px">🔐 Protect your spot in this pool</div>
+        <div style="font-size:13px;color:var(--dim);margin-bottom:10px">This pool has already started — if you lose this device or clear your browser now, there's no way back to your picks without a recovery password.</div>
+        <button class="big flat" id="poolSetRecoveryBtn">Set recovery password</button>
+        <div class="note" id="poolRecoveryDismiss" style="margin-top:8px;text-decoration:underline;cursor:pointer;text-align:center">Not now</div>
+      </div>
+    </div>
     <div id="poolHandshakeBox" style="display:none">
       <div style="margin:0 0 8px;font-family:var(--display);font-size:20px;font-weight:700;color:var(--purple);letter-spacing:.5px">🤝 HANDSHAKE MODE</div>
       <div class="hsBox">
@@ -1837,6 +1845,11 @@ function renderPoolDetail() {
     : `<span class="poolPill dead">🔴 You're out — Week ${esc(String(mine.eliminatedWeek || ""))}</span>`;
   $("poolStatusStrip").innerHTML = `${myPill}<span class="poolPill" style="background:var(--raised);color:var(--text)">${alive.length} of ${st.entries.length} still alive</span>`;
 
+  // Once a pool has started, entries are locked in for good — losing local identity (new
+  // device, cleared browser) with no recovery password set means no way back to your picks.
+  // Nudge once the stakes are real, not during the "open" phase when it's low-consequence.
+  $("poolRecoveryNudge").style.display = (mine && st.status !== "open" && !me.hasPassword && !localStorage.getItem("squp_recovery_nudge_dismissed")) ? "block" : "none";
+
   // host can always close (delete) the pool — no fairness concern like a draft's turn
   // order, this exists for "nobody joined" / "made it by accident" cleanup. Non-host
   // entrants can leave any time before the first week locks; after that, entries (and
@@ -2040,6 +2053,14 @@ $("poolHsAgreeBtn").addEventListener("click", async () => {
   $("poolHsAgreeBtn").disabled = true;
   try { await api(`/api/pool/${_poolCode}/handshake`, { userId: me.id }); await refreshPoolDetail(); }
   catch (e) { toast(e.message); $("poolHsAgreeBtn").disabled = false; }
+});
+$("poolSetRecoveryBtn").addEventListener("click", () => {
+  gotoTab("profile");
+  setTimeout(() => { $("setPwIn")?.scrollIntoView({ block: "center" }); $("setPwIn")?.focus(); }, 200);
+});
+$("poolRecoveryDismiss").addEventListener("click", () => {
+  localStorage.setItem("squp_recovery_nudge_dismissed", "1");
+  $("poolRecoveryNudge").style.display = "none";
 });
 document.addEventListener("click", async (e) => {
   const closeBtn = e.target.closest("[data-pool-close]");
