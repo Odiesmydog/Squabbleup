@@ -1933,8 +1933,11 @@ function renderPoolDetail() {
     const p = e.currentPick;
     let pickBadge;
     if (p) {
+      // A tiny bare logo icon with no text/background read as "nothing's there" at a glance
+      // (reported as picks having "disappeared" even though the data was always intact) —
+      // a solid pill with the logo *and* the team code together is unmistakable either way.
       const logo = poolTeamLogo(st.week.games, p.team);
-      pickBadge = `<span style="display:inline-flex;align-items:center;gap:4px;flex-shrink:0" title="${esc(p.team)}">${logo ? `<img src="${esc(logo)}" alt="${esc(p.team)}" style="width:22px;height:22px;object-fit:contain" />` : `<span class="team" style="font-size:12px">${esc(p.team)}</span>`}<span style="font-size:14px">${resultEmoji(p.result)}</span></span>`;
+      pickBadge = `<span class="poolPill" style="background:rgba(56,189,248,.18);color:var(--blue);display:inline-flex;align-items:center;gap:6px;flex-shrink:0">${logo ? `<img src="${esc(logo)}" alt="" style="width:18px;height:18px;object-fit:contain" />` : ""}${esc(p.team)} ${resultEmoji(p.result)}</span>`;
     } else if (e.hasPickedThisWeek) {
       pickBadge = `<span class="poolPill" style="background:rgba(34,232,143,.15);color:var(--green)">✓ Picked</span>`;
     } else {
