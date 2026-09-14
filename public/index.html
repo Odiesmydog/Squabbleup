@@ -1928,7 +1928,10 @@ function renderPoolDetail() {
   $("poolAliveCount").textContent = `· ${alive.length}/${st.entries.length} alive`;
   $("poolRevealHint").textContent = st.week.locked ? "" : "🔒 this week's picks revealed after the deadline";
   const isHostView = st.hostId === me.id;
-  let entriesHtml = st.entries.map((e) => {
+  // Alive players first, eliminated ones sink to the bottom — once someone's out they don't
+  // need to keep taking up prime real estate at the top of everyone's screen.
+  const sortedEntries = [...st.entries].sort((a, b) => (a.alive === b.alive) ? 0 : a.alive ? -1 : 1);
+  let entriesHtml = sortedEntries.map((e) => {
     const open = !!poolEntryOpen[e.userId];
     const p = e.currentPick;
     let pickBadge;
