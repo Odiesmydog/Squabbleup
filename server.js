@@ -1533,31 +1533,42 @@ async function tickPool(code, live, opts = {}) {
       }
     }
 
-    // (c) results + eliminations, once this week's games are all final. `live` is normally
-    // "whatever ESPN's parameterless endpoint currently calls the current week" — usually
-    // this pool's own week, but it can lag behind (a slow redeploy, a brief outage around
-    // the Sun→Tue rollover). That endpoint can never look backwards, so a plain weekKey
-    // equality check would leave a lagging pool stuck here forever once ESPN moves on.
-    // Self-heal by explicitly fetching *this* week's own data when what we were handed
-    // doesn't match. `forceLive` (admin simulate-week only) skips this and trusts whatever
-    // was explicitly passed in, since that endpoint's whole point is injecting an arbitrary
-    // (often historical) result set for testing — it should never be second-guessed here.
-    if (st.week.locked && !st.week.eliminationsProcessed) {
+    // (c) results — resolved per pick, the instant THAT pick's own game finishes, not the
+    // whole week. Picks already lock per-game (server.js /pick endpoint), so results should
+    // follow the same rule: someone whose team lost Sunday afternoon shouldn't still read as
+    // "alive" for two more days just because Monday Night Football hasn't happened yet.
+    // `live` is normally "whatever ESPN's parameterless endpoint currently calls the current
+    // week" — usually this pool's own week, but it can lag behind (a slow redeploy, a brief
+    // outage around the Sun→Tue rollover). That endpoint can never look backwards, so a
+    // plain weekKey equality check would leave a lagging pool stuck here forever once ESPN
+    // moves on. Self-heal by explicitly fetching *this* week's own data when what we were
+    // handed doesn't match. `forceLive` (admin simulate-week only) skips this and trusts
+    // whatever was explicitly passed in, since that endpoint's whole point is injecting an
+    // arbitrary (often historical) result set for testing — it should never be
+    // second-guessed here.
+    if (st.week.locked) {
       let weekLive = live;
       if (!opts.forceLive && live?.weekKey !== st.week.key) {
         const [season, seasonType, week] = String(st.week.key).split("-").map(Number);
         weekLive = await scoring.survivorWeek(st.sport || "NFL", { season, week, seasonType }).catch(() => null);
       }
-      if (weekLive?.allFinal) {
+      if (weekLive) {
         for (const e of st.entries) {
+          if (!e.alive) continue;
           const p = e.picks.find((p) => p.weekKey === st.week.key);
-          if (!p || p.team == null) continue; // already "missed"
+          if (!p || p.team == null || p.result !== "pending") continue; // "missed", or already resolved on a prior tick
           const g = weekLive.games.find((g) => g.away === p.team || g.home === p.team);
-          const result = !g || g.winner == null ? "push" : g.winner === p.team ? "win" : "loss";
+          if (!g || !g.completed) continue; // this entrant's own game isn't over yet
+          const result = g.winner == null ? "push" : g.winner === p.team ? "win" : "loss";
           p.result = result;
           e.usedTeams.push(p.team); // finalize the used-team lock only now
           if (result === "loss") { e.alive = false; e.eliminatedWeek = st.week.key; }
+          changed = true;
         }
+      }
+      // Once the whole week is final, every pick above is necessarily resolved by now —
+      // safe to declare the week's winner(s) and let the pool advance to the next week.
+      if (!st.week.eliminationsProcessed && weekLive?.allFinal) {
         st.week.eliminationsProcessed = true;
         const stillAlive = st.entries.filter((e) => e.alive);
         if (stillAlive.length === 0) { st.status = "complete"; st.winners = st.entries.filter((e) => e.eliminatedWeek === st.week.key).map((e) => e.userId); }
