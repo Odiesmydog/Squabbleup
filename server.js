@@ -1577,15 +1577,25 @@ async function tickPool(code, live, opts = {}) {
       }
     }
 
-    // (d) advance to next week once this week is fully processed and ESPN has moved on
-    if (st.status === "active" && st.week.eliminationsProcessed && live && live.weekKey !== st.week.key) {
-      const pre = live.games.filter((g) => g.state === "pre");
-      if (pre.length) {
-        st.week = {
-          key: live.weekKey, deadline: poolWeekDeadline(pre),
-          games: pre, remindersSent: { "24h": false, "3h": false, "1h": false }, locked: false, eliminationsProcessed: false,
-        };
-        changed = true;
+    // (d) advance to next week once this week is fully processed. Don't wait for ESPN's
+    // "current week" pointer (`live`) to catch up to the next week on its own — verified
+    // live that it can still report the just-finished week as "current" the morning after
+    // Monday Night Football ends, even though every game is final and next week's real
+    // schedule already exists. A pool waiting on that pointer sits stuck on "waiting for
+    // this week's results" long after results are actually in. Ask directly for this
+    // week's number + 1 instead.
+    if (st.status === "active" && st.week.eliminationsProcessed) {
+      const [season, seasonType, weekNum] = String(st.week.key).split("-").map(Number);
+      const nextLive = await scoring.survivorWeek(st.sport || "NFL", { season, week: weekNum + 1, seasonType }).catch(() => null);
+      if (nextLive && nextLive.weekKey !== st.week.key) {
+        const pre = nextLive.games.filter((g) => g.state === "pre");
+        if (pre.length) {
+          st.week = {
+            key: nextLive.weekKey, deadline: poolWeekDeadline(pre),
+            games: pre, remindersSent: { "24h": false, "3h": false, "1h": false }, locked: false, eliminationsProcessed: false,
+          };
+          changed = true;
+        }
       }
     }
 
