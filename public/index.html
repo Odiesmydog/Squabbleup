@@ -1121,6 +1121,8 @@ let me = JSON.parse(localStorage.getItem("squp_me") || "null");
 let pendingJoin = new URLSearchParams(location.search).get("join");
 let pendingJoinPool = new URLSearchParams(location.search).get("joinpool");
 let pendingRecoverToken = new URLSearchParams(location.search).get("recover");
+const pendingRecoverPoolCode = new URLSearchParams(location.search).get("poolCode");
+const pendingRecoverDraftCode = new URLSearchParams(location.search).get("draftCode");
 // In-app browsers (Instagram/Facebook/TikTok/etc, when a link is tapped from inside those
 // apps) run in a storage container fully isolated from the user's real Safari/Chrome — no
 // shared cookies, no shared localStorage. That's a different, unfixable-client-side version
@@ -2163,7 +2165,7 @@ document.addEventListener("click", async (e) => {
     if (!curPool) return;
     try {
       const { token } = await api(`/api/pool/${curPool.code}/entry-recovery-link`, { hostId: me.id, userId: targetUserId });
-      const link = `${location.origin}/?recover=${token}&kind=pool`;
+      const link = `${location.origin}/?recover=${token}&kind=pool&poolCode=${curPool.code}`;
       $("entryRecoveryTitle").textContent = `Recovery link for ${targetName}`;
       $("entryRecoveryText").textContent = link;
       $("entryRecoveryText").dataset.raw = link;
@@ -2179,7 +2181,7 @@ document.addEventListener("click", async (e) => {
     if (!draft) return;
     try {
       const { token } = await api(`/api/draft/${draft.code}/entry-recovery-link`, { hostId: me.id, userId: targetUserId });
-      const link = `${location.origin}/?recover=${token}&kind=draft`;
+      const link = `${location.origin}/?recover=${token}&kind=draft&draftCode=${draft.code}`;
       $("entryRecoveryTitle").textContent = `Recovery link for ${targetName}`;
       $("entryRecoveryText").textContent = link;
       $("entryRecoveryText").dataset.raw = link;
@@ -3602,6 +3604,11 @@ renderTop();
       if (!me || me.id === u.id || confirm(`Switch to ${u.name}'s account? You're currently signed in as ${me.name}.`)) {
         me = u; _saveMe(); renderTop();
         toast(`Welcome back, ${u.name}!`);
+        // A recovery link's whole point is getting back into ONE specific pool/draft — land
+        // there directly instead of the generic home screen and making them go hunting for
+        // it themselves.
+        if (pendingRecoverPoolCode) { history.replaceState(null, "", "/"); await joinPoolByCode(pendingRecoverPoolCode); return; }
+        if (pendingRecoverDraftCode) { history.replaceState(null, "", "/"); await joinByCode(pendingRecoverDraftCode); return; }
       }
     } catch {}
   }
