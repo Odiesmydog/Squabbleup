@@ -240,10 +240,13 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
 .poolLockedCard { background: var(--panel); border: 2.5px solid var(--green); border-radius: var(--r); padding: 18px; text-align: center; margin-bottom: 10px; }
 /* iPhone-style team scroll wheel */
 .teamWheelWrap { position: relative; height: 198px; margin-bottom: 4px; }
-.teamWheelHighlight { position: absolute; top: 66px; left: 0; right: 0; height: 66px; border-top: 2px solid var(--purple); border-bottom: 2px solid var(--purple); background: rgba(168,85,247,.1); pointer-events: none; z-index: 2; }
-.teamWheel { height: 198px; overflow-y: auto; scroll-snap-type: y mandatory; -webkit-overflow-scrolling: touch; scrollbar-width: none; mask-image: linear-gradient(to bottom, transparent, #000 25%, #000 75%, transparent); }
+/* 5 rows visible (was 3): container is 5x row height, the centered "selected" row sits at
+   the middle slot (2 rows down), and the spacer before/after the list is 2 row heights so
+   the first/last real team can still scroll all the way to that centered slot. */
+.teamWheelHighlight { position: absolute; top: 132px; left: 0; right: 0; height: 66px; border-top: 2px solid var(--purple); border-bottom: 2px solid var(--purple); background: rgba(168,85,247,.1); pointer-events: none; z-index: 2; }
+.teamWheel { height: 330px; overflow-y: auto; scroll-snap-type: y mandatory; -webkit-overflow-scrolling: touch; scrollbar-width: none; mask-image: linear-gradient(to bottom, transparent, #000 15%, #000 85%, transparent); }
 .teamWheel::-webkit-scrollbar { display: none; }
-.teamWheelSpacer { height: 66px; scroll-snap-align: none; }
+.teamWheelSpacer { height: 132px; scroll-snap-align: none; }
 .teamWheelRow { height: 66px; display: flex; align-items: center; gap: 13px; padding: 0 18px; scroll-snap-align: center; cursor: pointer; }
 .teamWheelRow .twLogo { width: 36px; height: 36px; object-fit: contain; flex-shrink: 0; }
 .teamWheelRow .twTeamCol { display: flex; flex-direction: column; flex-shrink: 0; }
