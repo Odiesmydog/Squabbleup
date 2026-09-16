@@ -239,7 +239,7 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
 .poolDeadlineBox { background: var(--panel); border-radius: var(--r); text-align: center; padding: 14px; margin-bottom: 16px; box-shadow: 0 4px 0 #0D0815; }
 .poolLockedCard { background: var(--panel); border: 2.5px solid var(--green); border-radius: var(--r); padding: 18px; text-align: center; margin-bottom: 10px; }
 /* iPhone-style team scroll wheel */
-.teamWheelWrap { position: relative; height: 198px; margin-bottom: 4px; }
+.teamWheelWrap { position: relative; height: 330px; margin-bottom: 4px; }
 /* 5 rows visible (was 3): container is 5x row height, the centered "selected" row sits at
    the middle slot (2 rows down), and the spacer before/after the list is 2 row heights so
    the first/last real team can still scroll all the way to that centered slot. */
@@ -2163,7 +2163,23 @@ document.addEventListener("click", async (e) => {
     if (!curPool) return;
     try {
       const { token } = await api(`/api/pool/${curPool.code}/entry-recovery-link`, { hostId: me.id, userId: targetUserId });
-      const link = `${location.origin}/?recover=${token}`;
+      const link = `${location.origin}/?recover=${token}&kind=pool`;
+      $("entryRecoveryTitle").textContent = `Recovery link for ${targetName}`;
+      $("entryRecoveryText").textContent = link;
+      $("entryRecoveryText").dataset.raw = link;
+      $("entryRecoveryModal").classList.add("on");
+    } catch {}
+    return;
+  }
+  const draftRecoveryBtn = e.target.closest("[data-draft-entry-recovery]");
+  if (draftRecoveryBtn) {
+    e.stopPropagation();
+    const targetUserId = draftRecoveryBtn.getAttribute("data-draft-entry-recovery");
+    const targetName = draftRecoveryBtn.getAttribute("data-draft-entry-recovery-name");
+    if (!draft) return;
+    try {
+      const { token } = await api(`/api/draft/${draft.code}/entry-recovery-link`, { hostId: me.id, userId: targetUserId });
+      const link = `${location.origin}/?recover=${token}&kind=draft`;
       $("entryRecoveryTitle").textContent = `Recovery link for ${targetName}`;
       $("entryRecoveryText").textContent = link;
       $("entryRecoveryText").dataset.raw = link;
@@ -2519,6 +2535,7 @@ function renderLobby() {
       <div class="fRow">${avHtml(s)}<span class="fn">${esc(s.name)}</span>
         ${s.userId === draft.hostId ? '<span class="tag host">HOST</span>' : ""}
         ${s.userId === me.id ? '<span class="tag">YOU</span>' : ""}
+        ${isHost && !s.bot && s.userId !== draft.hostId ? `<button class="rm" style="background:var(--raised);color:var(--dim)" title="Get recovery link" data-draft-entry-recovery="${esc(s.userId)}" data-draft-entry-recovery-name="${esc(s.name)}">🔐</button>` : ""}
         ${isHost && s.userId !== draft.hostId ? `<button class="rm" data-kick="${i}">✕</button>` : ""}
       </div>`).join("");
   }

@@ -1,6 +1,7 @@
 // SquabbleUP multiplayer server
 // env: DATABASE_URL (Neon), PORT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY
 const express = require("express");
+const fs = require("fs");
 const path = require("path");
 const http = require("http");
 const crypto = require("crypto");
@@ -35,6 +36,39 @@ app.use("/api/", (req, res, next) => {
   next();
 });
 setInterval(() => { const now = Date.now(); for (const [ip, e] of _rl) if (now - e.t > RL_WINDOW * 2) _rl.delete(ip); }, 60_000);
+
+// Custom link-preview text (title/description, plus real Open Graph tags — there weren't
+// any before) for the handful of query-string routes people actually share around: joining
+// a draft/pool, and recovering into one. Without this every shared link — including a
+// recovery link meant for one specific locked-out person — previewed as the generic
+// "Snake drafts with your friends" app description in iMessage/WhatsApp/etc, which read as
+// wrong/broken for something as specific as "here's your way back into WinOrDie".
+// Intercepts before express.static below so a plain "/" with no recognized params still
+// falls through to the normal static file untouched.
+const INDEX_HTML_PATH = path.join(__dirname, "public", "index.html");
+let _indexHtmlCache = null;
+const _getIndexHtml = () => _indexHtmlCache || (_indexHtmlCache = fs.readFileSync(INDEX_HTML_PATH, "utf8"));
+app.get("/", (req, res, next) => {
+  const q = req.query;
+  let preview = null;
+  if (q.recover) {
+    preview = q.kind === "draft"
+      ? { title: "Squabble draft recovery link — SquabbleUP", desc: "Tap to get back into your Squabble draft account." }
+      : { title: "Suicide Pool recovery link — SquabbleUP", desc: "Tap to get back into your Suicide Pool account." };
+  } else if (q.joinpool) {
+    preview = { title: "Join my Suicide Pool on SquabbleUP!", desc: "Pick one team a week, no repeats — survive to win." };
+  } else if (q.join) {
+    preview = { title: "Join my Squabble draft on SquabbleUP!", desc: "Live snake draft — pick from your own phone." };
+  }
+  if (!preview) return next();
+  const esc = (s) => s.replace(/"/g, "&quot;");
+  let html = _getIndexHtml()
+    .replace(/<title>.*?<\/title>/, `<title>${esc(preview.title)}</title>`)
+    .replace(/<meta name="description" content=".*?" \/>/, `<meta name="description" content="${esc(preview.desc)}" />`)
+    .replace("</head>", `<meta property="og:title" content="${esc(preview.title)}" /><meta property="og:description" content="${esc(preview.desc)}" /><meta property="og:type" content="website" /></head>`);
+  res.setHeader("Cache-Control", "no-cache");
+  res.send(html);
+});
 
 app.use(express.static(path.join(__dirname, "public"), {
   setHeaders: (res, p) => {
@@ -848,6 +882,25 @@ app.post("/api/draft/:code/removeseat", ah((req, res) => hostAction(req, res, (s
   if (!st.seats[i] || st.seats[i].userId === st.hostId) return "Can't remove that seat";
   st.seats.splice(i, 1);
 })));
+
+// Host-only: same one-tap recovery link as suicide pools — for a seated player who's locked
+// out (new device, cleared browser) with no recovery password/email set up beforehand. Not
+// routed through hostAction since it writes to the users table, not the draft's own state.
+app.post("/api/draft/:code/entry-recovery-link", ah(async (req, res) => {
+  const code = req.params.code.toUpperCase();
+  const { hostId, userId } = req.body;
+  const st = (await pool.query("SELECT state FROM drafts WHERE code=$1", [code])).rows[0]?.state;
+  if (!st) return res.status(404).json({ error: "Draft not found" });
+  if (st.hostId !== hostId) return res.status(403).json({ error: "Host only" });
+  const seat = st.seats.find((s) => s.userId === userId);
+  if (!seat) return res.status(404).json({ error: "That person isn't in this draft" });
+  const token = crypto.randomBytes(24).toString("hex");
+  await pool.query(
+    "UPDATE users SET recovery_link_token=$1, recovery_link_expires=now() + interval '7 days' WHERE id=$2",
+    [token, userId]
+  );
+  res.json({ token, name: seat.name });
+}));
 const COUNTDOWN_MS = 45 * 1000; // 45-second warm-up before picks begin
 app.post("/api/draft/:code/start", ah(async (req, res) => {
   const code = req.params.code.toUpperCase();
