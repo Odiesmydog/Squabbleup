@@ -914,13 +914,34 @@ p.sub { color: var(--dim); margin-bottom: 16px; font-size: 14.5px; }
 <div class="modal" id="recoverModal">
   <div class="sheet">
     <h2>Recover your account</h2>
-    <p class="note" style="margin:-4px 0 10px">Enter your friend code or recovery email, plus the password you set.</p>
-    <div class="lbl">Friend code or email</div>
-    <input class="field" id="recFc" maxlength="60" placeholder="e.g. FZLZAW or you@email.com" />
+    <p class="note" id="recoverSub" style="margin:-4px 0 10px">Enter your friend code or recovery email, plus the password you set.</p>
+    <div id="recModeGeneral">
+      <div class="lbl">Friend code or email</div>
+      <input class="field" id="recFc" maxlength="60" placeholder="e.g. FZLZAW or you@email.com" />
+    </div>
+    <div id="recModePool" style="display:none">
+      <div class="lbl">Pool code</div>
+      <input class="field" id="recPoolCode" maxlength="12" placeholder="e.g. WINORDIE" style="text-transform:uppercase" />
+      <div class="lbl">Your name in that pool</div>
+      <input class="field" id="recNickname" maxlength="20" placeholder="e.g. Bob" />
+    </div>
     <div class="lbl">Recovery password</div>
     <input class="field" id="recPw" type="password" placeholder="Password" />
     <button class="big" id="recoverBtn">Recover account</button>
-    <div class="note" id="recoverCancel" style="margin-top:12px;text-align:center;text-decoration:underline;cursor:pointer">Cancel</div>
+    <div class="note" id="recModeToggle" style="margin-top:12px;text-align:center;text-decoration:underline;cursor:pointer">Recovering into a pool instead? Use your pool code + name</div>
+    <div class="note" id="recoverCancel" style="margin-top:8px;text-align:center;text-decoration:underline;cursor:pointer">Cancel</div>
+  </div>
+</div>
+
+<!-- shown after a host taps "Get recovery link" for a specific pool entry -->
+<div class="modal" id="entryRecoveryModal">
+  <div class="sheet" style="text-align:center">
+    <div style="font-size:36px;margin-bottom:6px">🔐</div>
+    <h2 id="entryRecoveryTitle"></h2>
+    <p class="note" style="margin:8px 0 16px">Send them this link — tapping it logs them straight back into their real account and this pool. Works once, expires in 7 days.</p>
+    <div style="background:var(--raised);border-radius:12px;padding:14px;text-align:left;font-size:13px;word-break:break-all" id="entryRecoveryText"></div>
+    <button class="big" id="entryRecoveryCopy" style="margin-top:14px">📋 Copy link</button>
+    <div class="note" id="entryRecoveryClose" style="margin-top:12px;text-decoration:underline;cursor:pointer">Done</div>
   </div>
 </div>
 
@@ -1096,6 +1117,7 @@ const SPORTNAMES = { ALL: "All-sports", NFL: "NFL", NBA: "NBA", MLB: "MLB", NHL:
 let me = JSON.parse(localStorage.getItem("squp_me") || "null");
 let pendingJoin = new URLSearchParams(location.search).get("join");
 let pendingJoinPool = new URLSearchParams(location.search).get("joinpool");
+let pendingRecoverToken = new URLSearchParams(location.search).get("recover");
 // In-app browsers (Instagram/Facebook/TikTok/etc, when a link is tapped from inside those
 // apps) run in a storage container fully isolated from the user's real Safari/Chrome — no
 // shared cookies, no shared localStorage. That's a different, unfixable-client-side version
@@ -1193,11 +1215,20 @@ $("profSave").addEventListener("click", async () => {
   // ask for push permission after first-time setup
   setTimeout(() => requestPushPermission && requestPushPermission(), 1500);
 });
+let _recPoolMode = false;
+function _setRecMode(poolMode) {
+  _recPoolMode = poolMode;
+  $("recModeGeneral").style.display = poolMode ? "none" : "block";
+  $("recModePool").style.display = poolMode ? "block" : "none";
+  $("recModeToggle").textContent = poolMode ? "Have a friend code or recovery email instead? Use that" : "Recovering into a pool instead? Use your pool code + name";
+}
 $("recoverLink").addEventListener("click", () => {
   $("profModal").classList.remove("on");
-  $("recFc").value = ""; $("recPw").value = "";
+  $("recFc").value = ""; $("recPw").value = ""; $("recPoolCode").value = ""; $("recNickname").value = "";
+  _setRecMode(false);
   $("recoverModal").classList.add("on");
 });
+$("recModeToggle").addEventListener("click", () => _setRecMode(!_recPoolMode));
 $("recoverCancel").addEventListener("click", () => {
   $("recoverModal").classList.remove("on");
   $("profModal").classList.add("on");
@@ -1206,16 +1237,29 @@ $("jiaCopyLink").addEventListener("click", async () => {
   try { await navigator.clipboard.writeText(location.href); toast("Link copied — paste it into Safari or Chrome"); }
   catch { toast("Copy this link into Safari or Chrome: " + location.href); }
 });
+$("entryRecoveryCopy").addEventListener("click", async () => {
+  const text = $("entryRecoveryText").dataset.raw || "";
+  try { await navigator.clipboard.writeText(text); toast("Link copied — send it to them"); }
+  catch { toast("Select and copy the link above"); }
+});
+$("entryRecoveryClose").addEventListener("click", () => $("entryRecoveryModal").classList.remove("on"));
 $("jiaContinueAnyway").addEventListener("click", () => {
   $("joinInAppModal").classList.remove("on");
   openProfile(true);
 });
 $("recoverBtn").addEventListener("click", async () => {
-  const identifier = $("recFc").value.trim();
   const password = $("recPw").value;
-  if (!identifier || !password) { toast("Enter your friend code or email, and password"); return; }
+  const body = { password };
+  if (_recPoolMode) {
+    body.poolCode = $("recPoolCode").value.trim().toUpperCase();
+    body.nickname = $("recNickname").value.trim();
+    if (!body.poolCode || !body.nickname || !password) { toast("Enter the pool code, your name, and password"); return; }
+  } else {
+    body.identifier = $("recFc").value.trim();
+    if (!body.identifier || !password) { toast("Enter your friend code or email, and password"); return; }
+  }
   try {
-    const u = await api("/api/account/recover", { identifier, password });
+    const u = await api("/api/account/recover", body);
     me = u; _saveMe();
     $("recoverModal").classList.remove("on");
     renderTop();
@@ -1960,9 +2004,15 @@ function renderPoolDetail() {
       const rows = e.pastPicks && e.pastPicks.length
         ? e.pastPicks.map((pp) => `<span class="poolPill" style="background:var(--bg);color:var(--text);margin:0 4px 4px 0">${esc(pp.team || "—")} ${resultEmoji(pp.result)}</span>`).join("")
         : `<span style="color:var(--dim);font-size:12px">No past picks yet</span>`;
+      // Host-only escape hatch for someone who's locked out (new device, cleared browser)
+      // and never set up their own recovery password/email — the host already knows who
+      // this person is, so they can hand them a one-tap link back into their real account.
+      const recoveryBtn = (isHostView && e.userId !== me.id)
+        ? `<button class="mini" style="margin-top:10px" data-pool-entry-recovery="${esc(e.userId)}" data-pool-entry-recovery-name="${esc(e.name)}">🔐 Get recovery link</button>` : "";
       detail = `<div style="background:var(--raised);border-radius:0 0 12px 12px;padding:12px;margin:0 0 8px;font-size:13px">
         <div style="color:var(--dim);margin-bottom:6px">Past picks</div>
         <div>${rows}</div>
+        ${recoveryBtn}
       </div>`;
     }
     return header + detail;
@@ -2100,6 +2150,22 @@ document.addEventListener("click", async (e) => {
     const uid = entryToggle.getAttribute("data-pool-entry-toggle");
     poolEntryOpen[uid] = !poolEntryOpen[uid];
     renderPoolDetail();
+    return;
+  }
+  const recoveryLinkBtn = e.target.closest("[data-pool-entry-recovery]");
+  if (recoveryLinkBtn) {
+    e.stopPropagation();
+    const targetUserId = recoveryLinkBtn.getAttribute("data-pool-entry-recovery");
+    const targetName = recoveryLinkBtn.getAttribute("data-pool-entry-recovery-name");
+    if (!curPool) return;
+    try {
+      const { token } = await api(`/api/pool/${curPool.code}/entry-recovery-link`, { hostId: me.id, userId: targetUserId });
+      const link = `${location.origin}/?recover=${token}`;
+      $("entryRecoveryTitle").textContent = `Recovery link for ${targetName}`;
+      $("entryRecoveryText").textContent = link;
+      $("entryRecoveryText").dataset.raw = link;
+      $("entryRecoveryModal").classList.add("on");
+    } catch {}
     return;
   }
   const p = e.target.closest("[data-pool]")?.getAttribute("data-pool");
@@ -3506,6 +3572,19 @@ document.addEventListener("visibilitychange", () => {
 
 renderTop();
 (async () => {
+  // A recovery link is the strongest possible signal — it's server-verified via a one-time
+  // token, so it works even inside an in-app browser where cookies/localStorage can't help
+  // at all. Handle it before anything else in the boot sequence.
+  if (pendingRecoverToken) {
+    const token = pendingRecoverToken; pendingRecoverToken = null;
+    try {
+      const u = await api("/api/account/recover-link", { token });
+      if (!me || me.id === u.id || confirm(`Switch to ${u.name}'s account? You're currently signed in as ${me.name}.`)) {
+        me = u; _saveMe(); renderTop();
+        toast(`Welcome back, ${u.name}!`);
+      }
+    } catch {}
+  }
   // No local identity (fresh localStorage) doesn't necessarily mean a new visitor — check
   // the cookie-based fallback before showing "set up your player" and risking a duplicate
   // account for someone who already registered in a different storage context (see

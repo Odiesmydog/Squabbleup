@@ -82,6 +82,9 @@ async function initDb() {
     ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS recovery_email TEXT;
     CREATE UNIQUE INDEX IF NOT EXISTS idx_users_recovery_email ON users (LOWER(recovery_email)) WHERE recovery_email IS NOT NULL;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS recovery_link_token TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS recovery_link_expires TIMESTAMPTZ;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_users_recovery_link_token ON users (recovery_link_token) WHERE recovery_link_token IS NOT NULL;
     CREATE TABLE IF NOT EXISTS invites (
       id BIGSERIAL PRIMARY KEY,
       draft_code TEXT NOT NULL, to_user UUID NOT NULL,
@@ -134,6 +137,9 @@ async function initDb() {
 }
 
 const code6 = () => crypto.randomBytes(4).toString("base64").replace(/[^A-Z0-9]/gi, "").slice(0, 6).toUpperCase().padEnd(6, "X");
+// Slightly longer than code6() since this one's a password, not a room code — same
+// easy-to-read-aloud alphabet (uppercase letters + digits only).
+const genRecoveryPassword = () => crypto.randomBytes(6).toString("base64").replace(/[^A-Z0-9]/gi, "").toUpperCase().slice(0, 8).padEnd(8, "X");
 
 // ---------------- recovery password (optional — device identity is still the default) ----------------
 const scryptAsync = promisify(crypto.scrypt);
@@ -155,7 +161,7 @@ async function verifyPassword(pw, stored) {
 // sent to a client goes through this.
 function publicUser(u) {
   if (!u) return u;
-  const { password_hash, recovery_email, ...rest } = u;
+  const { password_hash, recovery_email, recovery_link_token, recovery_link_expires, ...rest } = u;
   return { ...rest, hasPassword: !!password_hash, hasRecoveryEmail: !!recovery_email };
 }
 
@@ -520,31 +526,79 @@ app.post("/api/account/set-password", ah(async (req, res) => {
   res.json({ ok: true });
 }));
 
-// Recover an account on a new/cleared device with (friend code OR recovery email) + password.
+// Recover an account on a new/cleared device. Two ways in: (friend code OR recovery email) +
+// password — the self-service path from Profile — or (pool code + the name you go by in that
+// pool) + password, for someone who never set up their own recovery credentials and is now
+// locked out with no way to prove which friend code is theirs. That second path only works
+// with a password the pool HOST explicitly generated for that specific entry (see
+// /api/pool/:code/entry-recovery below) — a pool code and a display name are both things
+// other pool members can see, so on their own they're not a secret; the password is what
+// actually gates access.
 // Per-identifier attempt limiter (separate from the global per-IP one) since this is the one
 // endpoint where someone could try to guess their way into an account that isn't theirs.
 const _recoverAttempts = new Map(); // identifier -> { n, t }
 app.post("/api/account/recover", ah(async (req, res) => {
   const raw = String(req.body.identifier || req.body.friendcode || "").trim();
+  const poolCode = String(req.body.poolCode || "").toUpperCase().trim();
+  const nickname = String(req.body.nickname || "").trim();
   const password = String(req.body.password || "");
+  const rlKey = poolCode ? `pool:${poolCode}:${nickname.toLowerCase()}` : raw.toLowerCase();
   const now = Date.now();
-  let a = _recoverAttempts.get(raw.toLowerCase());
-  if (!a || now - a.t > 15 * 60 * 1000) { a = { n: 0, t: now }; _recoverAttempts.set(raw.toLowerCase(), a); }
+  let a = _recoverAttempts.get(rlKey);
+  if (!a || now - a.t > 15 * 60 * 1000) { a = { n: 0, t: now }; _recoverAttempts.set(rlKey, a); }
   if (a.n >= 8) return res.status(429).json({ error: "Too many attempts — try again in 15 minutes" });
   a.n++;
-  const generic = { error: "Friend code, email, or password incorrect" };
-  if (!raw || !password) return res.status(400).json(generic);
-  const u = (await pool.query(
-    "SELECT * FROM users WHERE friendcode=$1 OR LOWER(recovery_email)=$2",
-    [raw.toUpperCase(), raw.toLowerCase()]
-  )).rows[0];
-  if (!u || !u.password_hash || !(await verifyPassword(password, u.password_hash))) {
-    return res.status(401).json(generic);
+  const generic = { error: "Those details didn't match — double check and try again" };
+  if (!password) return res.status(400).json(generic);
+
+  let candidateIds = [];
+  if (poolCode && nickname) {
+    const pr = await pool.query("SELECT state FROM pools WHERE code=$1", [poolCode]);
+    const st = pr.rows[0]?.state;
+    // Names aren't unique within a pool (two entrants could share one) — collect every match
+    // and let the password itself be what actually picks the right account.
+    if (st) candidateIds = st.entries.filter((e) => e.name.toLowerCase() === nickname.toLowerCase()).map((e) => e.userId);
+  } else if (raw) {
+    const u = (await pool.query(
+      "SELECT id FROM users WHERE friendcode=$1 OR LOWER(recovery_email)=$2",
+      [raw.toUpperCase(), raw.toLowerCase()]
+    )).rows[0];
+    if (u) candidateIds = [u.id];
+  } else {
+    return res.status(400).json(generic);
   }
-  a.n = 0;
-  res.json(publicUser(u));
+
+  for (const uid of candidateIds) {
+    const u = (await pool.query("SELECT * FROM users WHERE id=$1", [uid])).rows[0];
+    if (u?.password_hash && await verifyPassword(password, u.password_hash)) {
+      a.n = 0;
+      return res.json(publicUser(u));
+    }
+  }
+  return res.status(401).json(generic);
 }));
 setInterval(() => { const now = Date.now(); for (const [k, e] of _recoverAttempts) if (now - e.t > 30 * 60 * 1000) _recoverAttempts.delete(k); }, 5 * 60 * 1000);
+
+// One-tap recovery: no typing at all, just tap the link. Single-use (cleared the instant it
+// resolves) and time-boxed (7 days) so a screenshot or a forwarded text message doesn't stay
+// a standing way into the account forever. Same attempt limiter as the manual path.
+app.post("/api/account/recover-link", ah(async (req, res) => {
+  const token = String(req.body.token || "").trim();
+  const now = Date.now();
+  let a = _recoverAttempts.get(`link:${token}`);
+  if (!a || now - a.t > 15 * 60 * 1000) { a = { n: 0, t: now }; _recoverAttempts.set(`link:${token}`, a); }
+  if (a.n >= 8) return res.status(429).json({ error: "Too many attempts — try again in 15 minutes" });
+  a.n++;
+  const generic = { error: "That recovery link is invalid or has expired — ask your host for a new one" };
+  if (!token) return res.status(400).json(generic);
+  const u = (await pool.query(
+    "SELECT * FROM users WHERE recovery_link_token=$1 AND recovery_link_expires > now()",
+    [token]
+  )).rows[0];
+  if (!u) return res.status(401).json(generic);
+  await pool.query("UPDATE users SET recovery_link_token=NULL, recovery_link_expires=NULL WHERE id=$1", [u.id]);
+  res.json(publicUser(u));
+}));
 
 // Account deletion — required by App Store guideline 5.1.1(v) for apps with accounts.
 // Removes the user and their personal data; their name/avatar stays on finished draft
@@ -1311,6 +1365,27 @@ app.post("/api/pool/:code/removeentry", ah(async (req, res) => {
   } catch (e) { await client.query("ROLLBACK"); throw e; }
   finally { client.release(); }
   res.json(poolSafeState(st, hostId));
+}));
+
+// Host-only: generate a one-tap recovery link for a specific entrant's real account — for
+// someone who's locked out (new device, cleared browser) and never set up their own
+// recovery password/email beforehand. The host vouches for who this person is (they're
+// already a named entry the host can see) and hands them a link that logs them straight
+// back into their existing account, not a fresh duplicate one.
+app.post("/api/pool/:code/entry-recovery-link", ah(async (req, res) => {
+  const code = req.params.code.toUpperCase();
+  const { hostId, userId } = req.body;
+  const st = (await pool.query("SELECT state FROM pools WHERE code=$1", [code])).rows[0]?.state;
+  if (!st) return res.status(404).json({ error: "Pool not found" });
+  if (st.hostId !== hostId) return res.status(403).json({ error: "Host only" });
+  const entry = st.entries.find((e) => e.userId === userId);
+  if (!entry) return res.status(404).json({ error: "That person isn't in this pool" });
+  const token = crypto.randomBytes(24).toString("hex");
+  await pool.query(
+    "UPDATE users SET recovery_link_token=$1, recovery_link_expires=now() + interval '7 days' WHERE id=$2",
+    [token, userId]
+  );
+  res.json({ token, name: entry.name });
 }));
 
 app.post("/api/pool/:code/pick", ah(async (req, res) => {
