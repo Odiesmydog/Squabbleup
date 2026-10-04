@@ -1267,17 +1267,26 @@ function poolSafeState(st, viewerId) {
 // need a genuinely different elimination rule, not just a new sport key here.
 const SUICIDE_POOL_SPORTS = new Set(["NFL", "CFB"]);
 const SUICIDE_POOL_LABEL = { NFL: "NFL", CFB: "NCAA FB" };
-// Deadline = kickoff of the week's earliest Sunday game — the traditional survivor-pool
-// lock moment — not the week's very first kickoff overall. Locking at, say, a Thursday
-// opener would force everyone to decide their whole week (including picks for teams that
-// don't play until Monday) days early. This also means a Thursday-game pick isn't fully
-// "safe" until Sunday — if it loses, there's still time to switch to a different team
-// before the real deadline, same as real-world Sunday-lock pools. Falls back to the
-// earliest kickoff overall for the rare week with no Sunday game at all.
+// Deadline = kickoff of the week's main Sunday slate — the traditional survivor-pool lock
+// moment — not the week's very first kickoff overall. Locking at, say, a Thursday opener
+// would force everyone to decide their whole week (including picks for teams that don't
+// play until Monday) days early. This also means a Thursday-game pick isn't fully "safe"
+// until Sunday — if it loses, there's still time to switch to a different team before the
+// real deadline, same as real-world Sunday-lock pools.
+// "Main slate" is the kickoff time shared by the most Sunday games that week, not simply
+// the earliest Sunday kickoff — an international game (London/Germany, often 9:30am ET)
+// technically falls on Sunday too, but it's one game, not the slate; locking everyone's
+// whole week at that one-off kickoff stranded entrants hours before the real 1pm games
+// (see the WinOrDie incident, week 2026-2-4). Individual picks are still protected by
+// their own game's kickoff lock (see /pick) regardless of this backstop deadline, so an
+// early-game pick is never actually "free" either way. Falls back to the earliest kickoff
+// overall for the rare week with no Sunday game at all.
 function poolWeekDeadline(games) {
   const sunday = games.filter((g) => new Date(g.kickoff).toLocaleDateString("en-US", { weekday: "long", timeZone: "America/New_York" }) === "Sunday");
   const pool = sunday.length ? sunday : games;
-  return Math.min(...pool.map((g) => g.kickoff));
+  const counts = new Map();
+  for (const g of pool) counts.set(g.kickoff, (counts.get(g.kickoff) || 0) + 1);
+  return [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0];
 }
 app.post("/api/pool/create", ah(async (req, res) => {
   const { hostId, name, handshake } = req.body;
@@ -1496,6 +1505,47 @@ app.post("/api/pool/:code/invite", ah(async (req, res) => {
   const from = (await pool.query("SELECT name FROM users WHERE id=$1", [fromId])).rows[0];
   await pool.query("INSERT INTO pool_invites (pool_code, to_user, from_name) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING", [code, toUserId, from?.name || "A friend"]);
   res.json({ ok: true });
+}));
+
+// one-off repair tool for pools caught by the early-international-game deadline bug
+// (poolWeekDeadline used to anchor on the week's single earliest Sunday kickoff, which
+// could be a 9:30am ET London/Germany game rather than the real slate) — recomputes the
+// current week's deadline with the fixed logic and, if that pushes it back into the
+// future, reopens the week so anyone wrongly auto-eliminated can be reinstated and pick
+// again. Only touches the named user's current-week "missed" pick; everyone else's picks
+// and eliminations are left exactly as they are.
+app.post("/api/admin/pool/:code/fix-week", ah(async (req, res) => {
+  const key = req.headers["x-admin-key"];
+  if (!key || key !== process.env.ADMIN_KEY) return res.status(403).json({ error: "Forbidden" });
+  const code = req.params.code.toUpperCase();
+  const { reinstateUserId } = req.body || {};
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const r = await client.query("SELECT state FROM pools WHERE code=$1 FOR UPDATE", [code]);
+    const st = r.rows[0]?.state;
+    if (!st) { await client.query("ROLLBACK"); return res.status(404).json({ error: "Pool not found" }); }
+    const oldDeadline = st.week.deadline;
+    const newDeadline = poolWeekDeadline(st.week.games);
+    st.week.deadline = newDeadline;
+    if (newDeadline > Date.now()) st.week.locked = false;
+    let reinstated = null;
+    if (reinstateUserId) {
+      const entry = st.entries.find((e) => e.userId === reinstateUserId);
+      if (!entry) { await client.query("ROLLBACK"); return res.status(404).json({ error: "User not in this pool" }); }
+      const pick = entry.picks.find((p) => p.weekKey === st.week.key);
+      if (entry.eliminatedWeek === st.week.key && pick?.result === "missed") {
+        entry.alive = true;
+        entry.eliminatedWeek = null;
+        entry.picks = entry.picks.filter((p) => p.weekKey !== st.week.key);
+        reinstated = entry.name;
+      }
+    }
+    await client.query("UPDATE pools SET state=$1, updated=now() WHERE code=$2", [st, code]);
+    await client.query("COMMIT");
+    res.json({ ok: true, oldDeadline, newDeadline, locked: st.week.locked, reinstated });
+  } catch (e) { await client.query("ROLLBACK"); throw e; }
+  finally { client.release(); }
 }));
 
 app.delete("/api/admin/pool/:code", ah(async (req, res) => {
